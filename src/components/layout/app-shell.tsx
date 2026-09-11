@@ -3,10 +3,11 @@ import type { ReactNode } from "react";
 
 import { MobileTabBar } from "@/components/layout/mobile-tab-bar";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
+import type { ShellUser } from "@/components/layout/shell-user";
 import { UserSlot } from "@/components/layout/user-slot";
 import { APP_NAME } from "@/lib/constants";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({ user, children }: { user: ShellUser; children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-background">
       <aside className="hidden w-64 shrink-0 flex-col border-r md:flex">
@@ -19,7 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <SidebarNav />
         </div>
         <div className="border-t">
-          <UserSlot />
+          <UserSlot user={user} />
         </div>
       </aside>
 
@@ -28,8 +29,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link href="/dashboard" className="text-base font-semibold">
             {APP_NAME}
           </Link>
-          <div className="ml-auto">
-            <UserSlot />
+          <div className="ml-auto min-w-0">
+            <UserSlot user={user} />
           </div>
         </header>
 

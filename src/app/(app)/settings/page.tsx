@@ -1,58 +1,88 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
+import { DangerZone } from "@/components/account/danger-zone";
 import { PageHeader } from "@/components/layout/page-header";
-import { PlaceholderPanel } from "@/components/placeholder-panel";
-import { Badge } from "@/components/ui/badge";
+import { ProfileForm } from "@/components/profile/profile-form";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { ProfileFormValues } from "@/lib/auth/schemas";
+import { requireUser } from "@/lib/auth/session";
+import { GOALS, PLATFORMS, optionLabel } from "@/lib/constants";
+import { prisma } from "@/lib/db/prisma";
+import { toProfileDto } from "@/lib/dto";
 
 export const metadata: Metadata = { title: "设置" };
 
-const ENV_KEYS = [
-  { key: "DATABASE_URL", note: "开发用 SQLite 文件路径，生产换 Postgres 连接串" },
-  { key: "SESSION_SECRET", note: "会话签名密钥，至少 32 位" },
-  { key: "OPENAI_API_KEY", note: "仅服务端使用，绝不暴露给浏览器" },
-  { key: "OPENAI_BASE_URL", note: "OpenAI 兼容接口地址" },
-  { key: "OPENAI_MODEL", note: "模型名" },
-  { key: "AI_DAILY_LIMIT", note: "单用户每日调用上限（默认 20）" },
-  { key: "QUOTA_TOPIC", note: "每月选题额度（默认 10）" },
-  { key: "QUOTA_SCRIPT", note: "每月脚本额度（默认 10）" },
-  { key: "QUOTA_REVIEW", note: "每月复盘额度（默认 5）" },
-  { key: "APP_BASE_URL", note: "应用外部访问地址" },
-];
+export default async function SettingsPage() {
+  const user = await requireUser();
 
-export default function SettingsPage() {
+  const profile = await prisma.creatorProfile.findFirst({
+    where: { userId: user.id },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const dto = profile ? toProfileDto(profile) : null;
+
+  const defaultValues: ProfileFormValues | undefined = dto
+    ? {
+        name: dto.name,
+        platform: dto.platform,
+        niche: dto.niche,
+        positioning: dto.positioning ?? "",
+        followerCount: dto.followerCount === null ? "" : String(dto.followerCount),
+        weeklyCapacity: dto.weeklyCapacity === null ? "" : String(dto.weeklyCapacity),
+        goal: dto.goal ?? "",
+        targetAudience: dto.targetAudience ?? "",
+        tone: dto.tone ?? "",
+        contentFormats: dto.contentFormats,
+      }
+    : undefined;
+
   return (
     <div className="space-y-6">
-      <PageHeader title="设置" description="账号、画像与用量管理。" />
-
-      <PlaceholderPanel
-        stage="P1"
-        title="账号与画像"
-        description="P0 阶段为占位路由；P1 将接入登录态、账号画像编辑与用量展示。"
-        items={["账号邮箱与密码修改", "账号画像编辑（平台、赛道、人设、粉丝量）", "导出数据与注销账号"]}
-      />
+      <PageHeader title="设置" description="账号、账号画像与数据管理。" />
 
       <Card>
         <CardHeader>
-          <div className="flex flex-wrap items-center gap-2">
-            <CardTitle>环境变量清单</CardTitle>
-            <Badge variant="outline">只读说明</Badge>
-          </div>
-          <CardDescription>
-            本页只列出变量名与用途，不读取也不展示任何实际值。实际值请查看本地 .env 或部署平台配置。
-          </CardDescription>
+          <CardTitle>账号信息</CardTitle>
+          <CardDescription>{user.email}</CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="divide-y text-sm">
-            {ENV_KEYS.map((item) => (
-              <div key={item.key} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:gap-4">
-                <dt className="font-mono text-xs sm:w-56 sm:shrink-0">{item.key}</dt>
-                <dd className="text-muted-foreground">{item.note}</dd>
-              </div>
-            ))}
+          <dl className="grid gap-2 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-muted-foreground">昵称</dt>
+              <dd>{user.nickname ?? "未设置"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">修改昵称 / 修改密码</dt>
+              <dd className="text-muted-foreground">P5 提供</dd>
+            </div>
           </dl>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>账号画像</CardTitle>
+          <CardDescription>
+            {dto
+              ? `当前：${optionLabel(PLATFORMS, dto.platform)} · ${dto.niche} · 目标 ${optionLabel(GOALS, dto.goal)}`
+              : "还没有账号画像，创建后才能使用选题与脚本功能。"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-2">
+          {dto ? (
+            <ProfileForm mode="edit" profileId={dto.id} defaultValues={defaultValues} />
+          ) : (
+            <Link href="/onboarding" className={buttonVariants()}>
+              创建账号画像
+            </Link>
+          )}
+        </CardContent>
+      </Card>
+
+      <DangerZone email={user.email} />
     </div>
   );
 }

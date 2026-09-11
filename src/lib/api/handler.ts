@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
+import { requireUserForApi, type CurrentUser } from "@/lib/auth/session";
 import { EnvValidationError } from "@/lib/env";
 
 import { ApiError } from "./api-error";
@@ -14,9 +15,15 @@ export type RouteHandler<Ctx> = (
   context: Ctx,
 ) => Promise<NextResponse> | NextResponse;
 
+export type AuthedRouteHandler<Ctx> = (
+  request: Request,
+  context: Ctx,
+  user: CurrentUser,
+) => Promise<NextResponse> | NextResponse;
+
 /**
  * 路由处理器包装器：统一错误归一化与日志。
- * P0 只做兜底；鉴权（requireUser）将在 P1 通过 options 参数注入。
+ * 鉴权请使用 withAuthedRoute()，或在处理器内显式调用 requireUserForApi()。
  */
 export function withRoute<Ctx = RouteContext>(handler: RouteHandler<Ctx>) {
   return async (request: Request, context: Ctx): Promise<NextResponse> => {
@@ -44,4 +51,16 @@ export function withRoute<Ctx = RouteContext>(handler: RouteHandler<Ctx>) {
       return fail(ErrorCode.INTERNAL);
     }
   };
+}
+
+/**
+ * 需要登录的路由包装器：未登录返回 401，并把当前用户注入处理器。
+ * 所有涉及用户数据的读写都必须使用它（或显式调用 requireUserForApi），
+ * 并在查询条件中带上 userId，避免越权。
+ */
+export function withAuthedRoute<Ctx = RouteContext>(handler: AuthedRouteHandler<Ctx>) {
+  return withRoute<Ctx>(async (request, context) => {
+    const user = await requireUserForApi();
+    return handler(request, context, user);
+  });
 }

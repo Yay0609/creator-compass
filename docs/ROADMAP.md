@@ -6,8 +6,8 @@
 
 | 阶段 | 主题 | 状态 |
 | --- | --- | --- |
-| P0 | 项目骨架 | 已完成（待人工确认响应式后提交） |
-| P1 | 认证与账号画像 | 未开始 |
+| P0 | 项目骨架 | 已完成（tag `p0-skeleton`） |
+| P1 | 认证与账号画像 | 已完成（待人工确认响应式后提交） |
 | P2 | 热点选题推荐 | 未开始 |
 | P3 | AI 标题与脚本 | 未开始 |
 | P4 | 数据录入与复盘 | 未开始 |
@@ -16,51 +16,54 @@
 
 ## P0 项目骨架（已完成）
 
-范围：
+交付：Next.js 14 + TS strict + Tailwind + 手写最小 UI 组件；ESLint / Prettier / tsc；Prisma + SQLite + `AppMeta`；环境变量延迟校验；统一响应封装与 `/api/health`；AppShell 与占位路由；`docs/` 与 `AGENTS.md`；2 个单测。
 
-- Next.js 14 App Router + TypeScript strict + Tailwind CSS 3 + 手写最小 UI 组件
-- ESLint / Prettier / tsc 配置
-- Prisma 初始化 + SQLite + 最小 `AppMeta` 模型（仅用于连通性验证）
-- 环境变量延迟校验（10 个变量）
-- 统一响应封装、错误码、`/api/health`
-- AppShell、侧边导航、公开区 / 应用区路由占位页
-- `.env.example`、`README.md`、`AGENTS.md`、`docs/*`
-- 2 个单测：env 延迟校验、统一响应封装
+验收：`pnpm lint`、`pnpm exec tsc --noEmit`、`pnpm build`、`pnpm test` 全部通过；`/api/health` 返回 `db: "ok"`；移走 `.env` 后返回 500 且日志指明缺失变量；构建产物中无密钥。
 
-**明确不做**：认证、Session、User、AI 调用、选题、脚本、复盘、SSE。
+## P1 认证与账号画像（已完成）
 
-验收结果：
+交付：
 
-- [x] `pnpm lint` 零错误零警告
-- [x] `pnpm exec tsc --noEmit` 通过
-- [x] `pnpm build` 通过，路由表包含全部占位页（14 条路由 + `/_not-found`）
-- [x] `pnpm test` 通过（2 个测试文件 / 13 个用例）
-- [x] `pnpm exec prisma migrate dev --name init` 生成 `prisma/dev.db`（迁移 `20260911041257_init`）
-- [x] `/api/health` 返回 `db: "ok"`
-- [ ] 375px 显示底部 Tab、1440px 显示侧边栏（需在浏览器人工确认）
-- [x] 移走 `.env` 后 `/api/health` 返回 500，服务端日志出现 `SESSION_SECRET: Required`
-- [x] `.next` 产物中检索不到密钥值，客户端静态资源中无 `OPENAI_API_KEY` / `SESSION_SECRET`
+- `User` / `Session` / `CreatorProfile` 模型与迁移
+- 邮箱密码注册、登录、登出（bcryptjs 哈希；自建 Session 表 + httpOnly Cookie）
+- 三层守卫：middleware（粗粒度）/ 页面 `requireUser`、`requireProfile` / 接口 `withAuthedRoute`
+- `(app)/(needs-profile)` 路由组集中画像守卫
+- `/onboarding` 账号画像表单、`/settings` 账号与画像管理
+- 数据导出（JSON 附件）与账号注销（级联删除）
 
-P0 遗留说明：
+**明确不做**：选题、脚本、复盘、AI 调用、SSE、配额。
 
-- `.env` 中的 `OPENAI_API_KEY` 为占位值 `sk-placeholder-replace-me`，接入真实 AI 调用（P2）前必须替换
-- 本机安装依赖使用镜像 `registry.npmmirror.com`；默认 registry 下载 tarball 会卡住，详见 README 常见问题
+验收结果（端到端脚本，41 项断言）：
 
-## P1 认证与账号画像
+- [x] `prisma migrate dev` 生成迁移 `20260911095710_add_auth_and_profile`，三张表创建成功
+- [x] 未登录访问 `/dashboard` → 307 到 `/login?next=%2Fdashboard`
+- [x] 注册后自动登录并跳 `/onboarding`；重复邮箱返回 409
+- [x] Cookie 具备 `HttpOnly` / `SameSite=Lax` / `Path=/` / `Max-Age=2592000`
+- [x] 会话主键为 64 位 hex，且不等于 Cookie 明文
+- [x] 无画像访问 `/topics` → 跳 `/onboarding`；提交画像后可正常访问
+- [x] 越权 PATCH 他人画像返回 404，且数据未被修改
+- [x] 未登录访问 `/api/profiles` 返回 401
+- [x] 密码错误与不存在的邮箱返回相同文案（「邮箱或密码错误」）与 401
+- [x] 登出后该会话行被删除；携带旧 Cookie 访问被重定向
+- [x] 会话过期后访问被重定向，过期会话行被自动清理
+- [x] 导出为 JSON 附件，内容不含 `passwordHash`
+- [x] 注销：密码错误 422、确认文案不符 422、成功 200；用户 / 画像 / 会话级联删除，注销后无法登录
+- [x] `pnpm lint`、`pnpm exec tsc --noEmit`、`pnpm build`、`pnpm test`（42 项）全部通过
+- [x] 客户端静态资源中不含 `SESSION_SECRET` / `passwordHash` / `cc_session` / `bcryptjs` / `OPENAI_API_KEY`
+- [ ] 375px / 1440px 下登录、注册、引导、设置四页布局（需人工在浏览器确认）
 
-- `User` / `Session` 模型，注册 / 登录 / 登出 / 会话中间件
-- `(app)` 路由守卫 + `(auth)` 页面
-- `/onboarding` 账号画像表单（`CreatorProfile` 模型）
-- `/settings` 画像查看与修改
-- 验收：未登录访问 `/dashboard` 跳转登录；未建画像访问 `/topics` 跳转 onboarding；会话刷新后保持
+遗留说明：
+
+- `.env` 中 `OPENAI_API_KEY` 仍为占位值，P2 接入真实调用前必须替换
+- 已知缺口（推迟到 P5）：邮箱验证、找回密码、登录频率限制、修改昵称与密码
 
 ## P2 热点选题推荐
 
 - `TopicIdea` / `AiCallLog` / `UsageCounter` 模型
 - AI 网关 + 选题 Prompt + Zod schema + SSE 流式
 - `/topics` 生成 5 条、收藏、换一批、历史列表
-- 配额与每日防刷生效，失败回滚
-- 验收：生成 5 条含理由与参考方向；超额返回 `429 QUOTA_EXCEEDED`；AI 超时可重试
+- 配额（`QUOTA_TOPIC`）与每日防刷（`AI_DAILY_LIMIT`）生效，失败回滚
+- 验收：生成 5 条含理由与参考方向；超额返回 `429 QUOTA_EXCEEDED`；AI 超时可重试；AI 输出校验失败重试 1 次后降级为草稿
 
 ## P3 AI 标题与脚本
 
@@ -79,7 +82,8 @@ P0 遗留说明：
 ## P5 打磨与配额
 
 - 加载 / 空 / 错误态完善，移动端适配
-- 用量展示、退出登录、账号注销（级联删除）
+- 用量展示、修改昵称与密码、邮箱验证与找回密码、登录频率限制
+- 账号注销（当前为立即物理删除，如需冷静期在此阶段评估）
 - 埋点：生成次数、闭环完成率
 - 验收：375px 全流程可用；配额提示清晰；注销后无残留数据
 

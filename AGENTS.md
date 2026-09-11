@@ -61,7 +61,18 @@ pnpm test
 - 禁止 `rm -rf`、`prisma migrate reset`、删除项目目录外的文件、修改系统目录
 - 禁止提交 `.env` 与 `*.db`
 
-## 8. 文档
+## 8. 认证与会话约定（P1 起生效）
+
+- 会话明文 token 只存在于 httpOnly Cookie；数据库主键是 `HMAC-SHA256(token, SESSION_SECRET)`，**禁止改变这一派生方式**。
+- 禁止在 Client Component 中读取会话：`src/lib/auth/session.ts`、`password.ts`、`token.ts` 均带 `server-only`。客户端要拿当前用户只能走 `/api/auth/me`。
+- 页面守卫：`requireUser()`（未登录跳登录）、`requireProfile()`（无画像跳 onboarding）。需要画像的分区统一放在 `(app)/(needs-profile)/` 路由组下。
+- `src/middleware.ts` 只是粗粒度体验优化（edge runtime 无法查库），**不是安全边界**，不要在其中加入业务判断。
+- API 一律使用 `withAuthedRoute()`；查询与更新用户资源时条件必须带 `userId`，查不到就返回 404。
+- 每位用户只能有一个账号画像（P1 不变量）：创建第二个返回 409，删除最后一个返回 400。
+- 注销账号是物理删除（密码 + 「注销账号」二次确认），依赖外键级联清理 sessions / profiles。
+- 任何密钥都不得暴露为 `NEXT_PUBLIC_*`。
+
+## 9. 文档
 
 设计变更先改文档再改代码：
 

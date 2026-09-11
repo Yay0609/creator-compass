@@ -1,0 +1,26 @@
+// 创作罗盘 — 数据模型
+//
+// P0 只保留最小模型 AppMeta，用于验证 Prisma ↔ SQLite 通路与 /api/health 探活。
+// 业务模型（User / Session / CreatorProfile / TopicIdea / ScriptItem / PostRecord /
+// ReviewReport / AiCallLog / UsageCounter）按 docs/ROADMAP.md 在 P1 及之后阶段加入，
+// 禁止提前建表。
+//
+// 设计约束（便于 SQLite → Postgres 迁移）：
+// 1. 不使用 enum（SQLite 不支持），枚举值用 String + TS 常量联合类型
+// 2. JSON 数据统一存 String，读写两端都用 Zod 校验
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// 应用级键值元数据（P0 用于连通性验证；P1 起可承载 schema 版本等标记）
+model AppMeta {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

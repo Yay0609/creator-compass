@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { TopicCard } from "@/components/topics/topic-card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { describeError } from "@/lib/client/error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/client/api";
 import type { TopicDto } from "@/lib/topics/schemas";
@@ -38,7 +40,7 @@ export function TopicHistory({
     setLoading(false);
 
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeError(result.error));
       return;
     }
 
@@ -52,9 +54,10 @@ export function TopicHistory({
 
   if (topics.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        还没有历史选题。生成一批后，这里会按时间倒序保留全部记录。
-      </div>
+      <EmptyState
+        title="还没有历史选题"
+        description="生成一批后，这里会按时间倒序保留全部记录。"
+      />
     );
   }
 

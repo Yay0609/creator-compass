@@ -4,9 +4,9 @@ import { z } from "zod";
 
 import {
   AI_MAX_ATTEMPTS,
-  AI_MAX_TOKENS,
+  AI_MAX_TOKENS_LIMIT,
   AI_RETRY_BASE_DELAY_MS,
-  AI_TIMEOUT_MS,
+  AI_TIMEOUT_MS_LIMIT,
 } from "@/lib/constants";
 import { getEnv } from "@/lib/env";
 
@@ -223,9 +223,9 @@ export async function callChatJson(options: CallChatJsonOptions): Promise<ChatJs
   const env = getEnv();
   const model = env.OPENAI_MODEL;
   const url = `${env.OPENAI_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
-  const timeoutMs = options.timeoutMs ?? AI_TIMEOUT_MS;
+  const timeoutMs = Math.min(options.timeoutMs ?? env.AI_TIMEOUT_MS, AI_TIMEOUT_MS_LIMIT);
   const retryDelayMs = options.retryDelayMs ?? AI_RETRY_BASE_DELAY_MS;
-  const maxTokens = Math.min(options.maxTokens ?? AI_MAX_TOKENS, AI_MAX_TOKENS);
+  const maxTokens = Math.min(options.maxTokens ?? env.AI_MAX_TOKENS, AI_MAX_TOKENS_LIMIT);
   const temperature = options.temperature ?? 0.7;
   const promptChars = options.messages.reduce(
     (total, message) => total + message.content.length,

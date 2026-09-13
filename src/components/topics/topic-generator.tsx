@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { TopicCard } from "@/components/topics/topic-card";
 import { Badge } from "@/components/ui/badge";
+import { QuotaHint } from "@/components/quota/quota-hint";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field } from "@/components/ui/field";
@@ -305,15 +306,11 @@ export function TopicGenerator({
           ) : null}
         </div>
 
-        {topicExhausted ? (
-          <p className="text-sm text-destructive">本月选题额度已用完，下月自动恢复。</p>
-        ) : null}
-        {dailyExhausted ? (
-          <p className="text-sm text-destructive">今日 AI 调用已达上限，请明天再来。</p>
-        ) : null}
+        <QuotaHint label="选题" scope="month" snapshot={usage.topic} />
+        <QuotaHint label="AI 调用" scope="day" snapshot={usage.aiDaily} />
 
         {running && progress ? (
-          <div className="rounded-md border bg-muted/40 p-3 text-sm">
+          <div className="rounded-md border bg-muted/40 p-3 text-sm" role="status" aria-live="polite">
             <p>{PHASE_LABEL[progress.phase] ?? "处理中…"}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               已接收 {progress.chars} 字；只展示进度，不展示模型原文。
@@ -321,9 +318,13 @@ export function TopicGenerator({
           </div>
         ) : null}
 
+        <p className="sr-only" role="status" aria-live="polite">
+          {notice ?? ""}
+          {errorMessage ?? ""}
+        </p>
         {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
         {errorMessage && status !== "draft" ? (
-          <p className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-destructive">
             {errorCode ? `[${errorCode}] ` : ""}
             {errorMessage}
           </p>

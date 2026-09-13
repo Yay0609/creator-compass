@@ -72,12 +72,20 @@ export type AiFeature = (typeof AI_FEATURES)[number];
 // ---------- AI 网关（P2） ----------
 
 /** 单次 AI 请求硬超时（毫秒）。超时不重试：重试会把等待时间翻倍，且受 Vercel 执行时长限制。 */
-export const AI_TIMEOUT_MS = 45_000;
+/** 值由环境变量 AI_TIMEOUT_MS 决定（P5 起）；这里是兜底默认值与允许区间。 */
+export const AI_TIMEOUT_MS_FALLBACK = 45_000;
+export const AI_TIMEOUT_MS_MIN = 5_000;
+export const AI_TIMEOUT_MS_LIMIT = 120_000;
 
 /** 单次请求 max_tokens 上限，防止模型跑飞导致费用与延迟失控。
  * P4 起提升到 3000：复盘报告（诊断 + 建议 + 下一批选题）比选题 / 脚本更长，
  * 由 prompt 约束输出规模，避免被截断。 */
-export const AI_MAX_TOKENS = 3_000;
+/** 值由环境变量 AI_MAX_TOKENS 决定（P5 起）；这里是兜底默认值与硬上限。 */
+export const AI_MAX_TOKENS_FALLBACK = 3_000;
+export const AI_MAX_TOKENS_LIMIT = 8_192;
+
+/** AiCallLog 默认保留天数（P5 起可用 AI_LOG_RETENTION_DAYS 覆盖）。 */
+export const AI_LOG_RETENTION_DAYS_FALLBACK = 90;
 
 /** 最多尝试次数（含首次）。仅 429 / 5xx / 网络错误会重试。 */
 export const AI_MAX_ATTEMPTS = 3;

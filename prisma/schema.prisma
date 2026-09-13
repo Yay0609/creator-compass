@@ -160,6 +160,7 @@ model AiCallLog {
   @@index([userId, createdAt])
   @@index([kind, status, createdAt])
   @@index([requestId])
+  @@index([createdAt])
 }
 /// 脚本。由选题（或手填标题）生成：多个标题候选 + 开头钩子 + 分段脚本 + 标签 + 封面文案。
 /// 不落库「完整口播稿」：它由 outline 在 DTO 层派生，避免同一份内容两处存储导致不一致。

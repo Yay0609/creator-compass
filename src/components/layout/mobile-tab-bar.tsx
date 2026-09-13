@@ -11,10 +11,10 @@ export function MobileTabBar() {
 
   return (
     <nav
-      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 backdrop-blur md:hidden pb-[env(safe-area-inset-bottom)]"
       aria-label="底部导航"
     >
-      <ul className="grid grid-cols-4">
+      <ul className="grid grid-cols-5">
         {MOBILE_TAB_ITEMS.map((item) => {
           const active = isNavItemActive(pathname, item.href);
           const Icon = item.icon;

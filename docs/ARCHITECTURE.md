@@ -22,6 +22,8 @@
 ```
 src/app/
   page.tsx                          /                 公开区落地页
+  privacy/page.tsx                  /privacy          隐私政策（公开）
+  terms/page.tsx                    /terms            服务条款（公开）
   (auth)/layout.tsx                 已登录则跳 /dashboard
   (auth)/login/page.tsx             /login
   (auth)/register/page.tsx          /register
@@ -59,7 +61,7 @@ src/app/
   middleware.ts                     粗粒度未登录重定向（非安全边界）
 ```
 
-导航：桌面为左侧固定侧边栏；移动为底部 Tab（概览 / 选题 / 脚本 / 数据）。导航配置唯一真源为 `src/components/nav-config.ts`。
+导航：桌面为左侧固定侧边栏；移动为底部 Tab（概览 / 选题 / 脚本 / 数据 / 复盘）。导航配置唯一真源为 `src/components/nav-config.ts`。
 
 路由组 `(needs-profile)` 不影响 URL，只用于集中「必须先完成账号画像」的守卫，新增选题 / 脚本 / 数据 / 复盘子路由时无需重复校验。
 
@@ -333,6 +335,7 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 ## 9. 环境变量
 
 `DATABASE_URL`、`SESSION_SECRET`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`、`AI_DAILY_LIMIT`、`QUOTA_TOPIC`、`QUOTA_SCRIPT`、`QUOTA_REVIEW`、`APP_BASE_URL`
+可选项（留空即用默认值）：`AI_MAX_TOKENS`（默认 3000，上限 8192）、`AI_TIMEOUT_MS`（默认 45000，上限 120000）、`AI_LOG_RETENTION_DAYS`（默认 90）
 
 ## 10. 生产迁移注意
 
@@ -340,3 +343,15 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 - Serverless 必须使用连接池地址，并限制连接数
 - SSE 生成接口需要确认平台执行时长（`maxDuration = 60s`），必要时评估降级为非流式
 - 上线前在空库跑一次 `prisma migrate deploy`，并把 `OPENAI_BASE_URL` 从 mock 切回真实地址
+
+## 11. 打磨、清理与埋点（P5）
+
+- 空态 / 错误态 / 加载态统一：`ui/empty-state.tsx`、`ui/error-state.tsx`、`ui/inline-alert.tsx`、`(app)/loading.tsx`；错误边界只展示通用文案 + `digest`
+- 无障碍基线：`SkipLink` + `#main-content`、`aria-current`、生成进度 `role=status` + `aria-live`、图标按钮 `aria-label`、`prefers-reduced-motion`
+- 配额提示：`components/quota/quota-hint.tsx`；重置时间由 `lib/quota/display.ts` 从周期字符串推导（`QuotaSnapshot` 契约不变）
+- 限额可配：`AI_MAX_TOKENS`（默认 3000 / 上限 8192）、`AI_TIMEOUT_MS`（默认 45000 / 上限 120000）
+- 日志保留：`AiCallLog` 默认保留 90 天（`AI_LOG_RETENTION_DAYS`），分批清理见 `lib/ai/log-retention.ts` 与 `scripts/prune-ai-logs.mjs`（默认 dry-run）
+- 埋点：派生漏斗 `lib/metrics/funnel.ts` + `scripts/funnel.mjs`；只用既有表统计，不新增事件表、不上报第三方
+- 导出：Markdown 分镜表在浏览器本地生成（`lib/scripts/markdown.ts` + `lib/client/download.ts`），无服务端导出接口
+- 真实上游冒烟：`scripts/smoke-real-ai.mjs` 串起「注册 → 画像 → 选题 → 脚本 → 作品 → 复盘 → 注销」，断言 SSE 三响应头、配额消耗、`AiCallLog` 落库与注销级联清理；没有真实 Key 时可指向 `scripts/mock-openai.mjs` 并加 `--allow-placeholder-key` 自检
+- 公开区：`/privacy`、`/terms` 与落地页共用 `PublicHeader` / `PublicFooter`；运营主体信息待补充

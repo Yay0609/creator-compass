@@ -57,6 +57,7 @@ pnpm dev
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm db:migrate` | Prisma 迁移 |
 | `pnpm db:studio` | 可视化查看本地数据 |
+| `pnpm smoke:real` | 真实上游全链路冒烟（需真实 Key，且已 `pnpm start`） |
 
 阶段完成定义：`pnpm lint`、`pnpm exec tsc --noEmit`、`pnpm build`、`pnpm test` **全部通过**，且零错误零警告。
 
@@ -67,13 +68,16 @@ pnpm dev
 | `DATABASE_URL` | 是 | 开发用 SQLite 文件；生产换 Postgres 连接串 | `file:./dev.db` |
 | `SESSION_SECRET` | 是 | 会话密钥，≥ 32 字符 | 32 字节 hex |
 | `OPENAI_API_KEY` | 是 | AI 服务密钥，**仅服务端使用** | `sk-...` |
-| `OPENAI_BASE_URL` | 是 | OpenAI 兼容接口地址 | `https://api.openai.com/v1` |
-| `OPENAI_MODEL` | 是 | 模型名 | `gpt-4o-mini` |
+| `OPENAI_BASE_URL` | 是 | OpenAI 兼容接口地址（P5 起默认 DeepSeek） | `https://api.deepseek.com/v1` |
+| `OPENAI_MODEL` | 是 | 模型名 | `deepseek-chat` |
 | `AI_DAILY_LIMIT` | 是 | 单用户每日 AI 调用上限（防刷） | `20` |
 | `QUOTA_TOPIC` | 是 | 每月选题生成额度 | `10` |
 | `QUOTA_SCRIPT` | 是 | 每月脚本生成额度 | `10` |
 | `QUOTA_REVIEW` | 是 | 每月复盘生成额度 | `5` |
 | `APP_BASE_URL` | 是 | 应用外部访问地址 | `http://localhost:3000` |
+| `AI_MAX_TOKENS` | 否 | 单次请求 max_tokens 上限（默认 3000，上限 8192） | `3000` |
+| `AI_TIMEOUT_MS` | 否 | 单次请求硬超时毫秒（默认 45000，上限 120000） | `45000` |
+| `AI_LOG_RETENTION_DAYS` | 否 | AiCallLog 保留天数（默认 90） | `90` |
 
 环境变量采用**延迟校验**：模块加载时不抛错，首次调用 `getEnv()` 时才用 Zod 校验并抛出 `EnvValidationError`；日志只输出变量名与原因，**不输出密钥值**。
 
@@ -96,8 +100,9 @@ src/
     db/                 Prisma 单例
     constants.ts        平台 / 赛道等常量
     env.ts              环境变量延迟校验
-prisma/schema.prisma    P0 仅 AppMeta
+prisma/schema.prisma    Prisma 数据模型与迁移
 tests/                  Vitest 单测
+scripts/                本地联调脚本（mock 上游 / 真实冒烟 / 漏斗 / 日志清理）
 docs/                   PRD / ARCHITECTURE / ROADMAP
 ```
 

@@ -10,8 +10,8 @@
 | P1 | 认证与账号画像 | 已完成（tag `p1-auth`） |
 | P2 | 热点选题推荐 | 已完成（tag `p2-topics`） |
 | P3 | AI 标题与脚本 | 已完成（tag p3-scripts） |
-| P4 | 数据录入与复盘 | 已完成（待人工确认） |
-| P5 | 打磨与配额 | 未开始 |
+| P4 | 数据录入与复盘 | 已完成（tag p4-reviews） |
+| P5 | 打磨与配额 | 已完成（待打 tag） |
 | P6 | 部署上线 | 未开始 |
 
 ## P0 项目骨架（已完成）
@@ -94,7 +94,7 @@
 
 遗留说明：
 
-- `.env` 中 `OPENAI_API_KEY` 仍是占位值，本轮全部用本地 mock 验收；**真实上游冒烟推迟到 P6 部署前替换 Key 后执行**
+- `.env` 中 `OPENAI_API_KEY` 当时仍是占位值，本轮全部用本地 mock 验收；真实上游冒烟已在 P5 用 DeepSeek 补测（见 P5 章节）
 - 新增 `POST /api/topics`（人工保存草稿/手动新增，不消耗配额）：若不提供，422 降级草稿将无法落库
 - `AiCallLog` 无自动清理策略，量大后需在 P5 评估保留期
 - SSE 在 Vercel Serverless 的执行时长限制需在 P6 验证
@@ -136,7 +136,7 @@
 
 遗留说明：
 
-- 本轮同样使用本地 mock 验收（`OPENAI_API_KEY` 仍是占位值），真实上游冒烟推迟到 P6 替换 Key 后执行
+- 本轮同样使用本地 mock 验收（`OPENAI_API_KEY` 当时是占位值）；真实上游冒烟已在 P5 用 DeepSeek 补测
 - 「重新生成」通过新增记录实现，历史会持续累积；P5 可评估批量归档 / 清理
 - Markdown 分镜表导出按计划留到 P5 评估
 
@@ -178,23 +178,57 @@
 
 遗留说明：
 
-- 本轮仍使用本地 mock 验收（`OPENAI_API_KEY` 是占位值），真实上游冒烟推迟到 P6
+- 本轮仍使用本地 mock 验收（`OPENAI_API_KEY` 当时是占位值）；真实上游冒烟已在 P5 用 DeepSeek 补测
 - 报告导出（Markdown / PDF）与 Markdown 分镜表按计划留到 P5 评估
 - CSV 不做自动去重：只标记「疑似重复（标题 + 发布时间一致）」，由用户决定是否继续提交
 
-## P5 打磨与配额
+## P5 打磨与配额（已完成）
 
-- 加载 / 空 / 错误态完善，移动端适配
-- 用量展示、修改昵称与密码、邮箱验证与找回密码、登录频率限制
-- `AiCallLog` 保留期与清理策略
-- 埋点：生成次数、闭环完成率
-- 评估报告导出（Markdown / PDF）与 Markdown 分镜表（P3 / P4 均按计划推迟）
-- 验收：375px 全流程可用；配额提示清晰；注销后无残留数据
+交付：
+
+- 打磨：统一空态 / 错误态 / 加载态（`EmptyState`、`ErrorState`、`InlineAlert`、`(app)/loading.tsx`）；错误边界不再回显 `error.message`，只给通用文案 + `digest`
+- 无障碍：`SkipLink` + `#main-content`、导航 `aria-current`、生成进度 `role=status` + `aria-live`、图标按钮 `aria-label`、尊重 `prefers-reduced-motion`
+- 移动端：底部 Tab 扩到 5 项（概览 / 选题 / 脚本 / 数据 / 复盘），底栏补安全区留白
+- 配额与成本：`QuotaHint` 在生成前说明「本次消耗 1 次、本月剩余 n 次」，用尽时给出重置时间；`AI_MAX_TOKENS` 与 `AI_TIMEOUT_MS` 环境变量化；`AiCallLog` 保留 90 天 + 分批清理脚本（默认 dry-run）
+- 埋点：派生漏斗（注册 -> 选题 -> 脚本 -> 数据 -> 复盘），只从既有表统计，不新增事件表、不上报第三方；概览页新增个人闭环进度
+- 导出：脚本详情页支持导出 Markdown 分镜表（浏览器本地生成，无服务端接口）
+- 文案：落地页改版（痛点 / 三步闭环 / 核心能力 / FAQ），新增 `/privacy` 与 `/terms` 公开页与公开区页头页脚
+- 真实上游冒烟：`scripts/smoke-real-ai.mjs`（`pnpm smoke:real`）已对真实 DeepSeek（`deepseek-chat`）跑通全链路——注册 → 画像 → 选题（7.7s / 5 条）→ 脚本（5 个标题候选 / 6 段）→ 录入 3 条作品 → 复盘（纳入 3 条）→ 注销；配额 topic=1 / script=1 / review=1、日额度 3/20，`AiCallLog` 3 条全部 status=ok，注销后 9 类关联数据全部清零
+
+验收结果：
+
+- [x] 四件套全部通过（lint / tsc --noEmit / test / build）
+- [x] 新增单测：AI 限额环境变量、AiCallLog 保留期与分批删除、派生漏斗口径、Markdown 导出与文件名安全化
+- [x] 空列表全部走统一空态组件，并给出下一步入口
+- [x] 错误边界与接口失败提示不再回显内部错误原文
+- [x] 键盘可经 SkipLink 直达主内容；生成进度与错误对读屏可见
+- [x] 额度耗尽时入口置灰并显示重置时间；`AI_MAX_TOKENS` 调整后确实生效
+- [x] `node scripts/prune-ai-logs.mjs` 默认 dry-run，加 `--yes` 才删除；`node scripts/funnel.mjs` 与手工统计一致
+- [x] 导出的 Markdown 分镜表可正常渲染（表格竖线已转义）
+- [x] 真实上游冒烟通过：`scripts/smoke-real-ai.mjs` 在 DeepSeek `deepseek-chat` 上跑通「注册 → 画像 → 选题 → 脚本 → 作品 → 复盘 → 注销」，并断言配额、`AiCallLog` 与级联清理
+- [ ] 375px / 1440px 下落地页、`/privacy`、`/terms`、概览与四个功能页需人工确认
+
+遗留说明：
+
+- 真实上游冒烟已在 P5 用 DeepSeek 跑通（脚本见 `scripts/smoke-real-ai.mjs`）；P6 只需把生产环境的 Key / 模型换成正式配置后复跑一次 `pnpm smoke:real`
+- 复盘报告导出（Markdown / PDF）本轮未做，只保留报告复制，导出留待评估
+- 隐私政策与服务条款的运营主体、联系方式与生效日期标注为「待补充」，上线前补齐
+
 
 ## P6 部署上线
 
 - 切换 Postgres（Neon / Supabase）、连接池、`prisma migrate deploy`
 - Vercel 部署、域名、环境变量、错误监控
-- **替换真实 `OPENAI_API_KEY` 并跑一次真实上游冒烟**
-- 隐私政策页
+- 配置生产环境的 `OPENAI_API_KEY` / `OPENAI_MODEL`，并在生产环境复跑一次 `pnpm smoke:real`（P5 已在 DeepSeek 上跑通）
+- 隐私政策与服务条款的运营主体信息补齐（页面已在 P5 提供）
 - 验收：生产环境跑通完整闭环
+
+## P6 候选 / 待排期
+
+P5 明确不做、但 ROADMAP 早期版本曾列在 P5 的项目，统一挪到这里排队：
+
+- 修改昵称与密码
+- 邮箱验证
+- 找回密码
+- 登录频率限制
+- 复盘报告导出（Markdown / PDF）评估；Markdown 分镜表已在 P5 交付

@@ -16,7 +16,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiRequest } from "@/lib/client/api";
+import { downloadTextFile, safeFileName } from "@/lib/client/download";
 import type { ScriptDto } from "@/lib/scripts/schemas";
+import { scriptToMarkdown } from "@/lib/scripts/markdown";
 
 function formatSeconds(total: number): string {
   if (total <= 0) {
@@ -36,6 +38,16 @@ export function ScriptDetail({ script: initialScript }: { script: ScriptDto }) {
   const [favoritePending, setFavoritePending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function exportMarkdown(): void {
+    try {
+      downloadTextFile(safeFileName(script.title) + ".md", scriptToMarkdown(script));
+      setMessage("已导出 Markdown 分镜表，可直接粘贴到编辑器。");
+      setError(null);
+    } catch {
+      setError("导出失败，请改用「复制口播稿」后手动保存。");
+    }
+  }
 
   function startEdit(): void {
     setValue(toEditorValue(script));
@@ -159,6 +171,9 @@ export function ScriptDetail({ script: initialScript }: { script: ScriptDto }) {
             <CopyButton value={script.title} label="复制主标题" />
             <CopyButton value={script.fullScript} label="复制口播稿" />
             <CopyButton value={script.tags.join(" ")} label="复制标签" />
+            <Button variant="outline" size="sm" onClick={exportMarkdown}>
+              {"导出分镜表"}
+            </Button>
             <CopyButton value={script.coverCopy} label="复制封面文案" />
             {script.topicId ? (
               <Link

@@ -51,7 +51,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: "复盘",
     description: "复盘报告与下一步建议",
     icon: ClipboardCheck,
-    showInMobileTab: false,
+    showInMobileTab: true,
   },
   {
     href: "/settings",
@@ -65,5 +65,5 @@ export const NAV_ITEMS: NavItem[] = [
 export const MOBILE_TAB_ITEMS = NAV_ITEMS.filter((item) => item.showInMobileTab);
 
 export function isNavItemActive(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
+  return pathname === href || pathname.startsWith(href + "/");
 }

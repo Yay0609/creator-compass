@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AiError } from "@/lib/ai/errors";
 import { callChatJson } from "@/lib/ai/provider";
-import { AI_MAX_TOKENS } from "@/lib/constants";
+import { AI_MAX_TOKENS_LIMIT } from "@/lib/constants";
 import { resetEnvCache } from "@/lib/env";
 
 const BASE_ENV: Record<string, string> = {
@@ -96,7 +96,7 @@ describe("AI 网关：超时、重试与降级", () => {
     const calls = stubFetch(() => Promise.resolve(completionResponse()));
     await callChatJson({ messages: MESSAGES, maxTokens: 999_999 });
 
-    expect(calls[0]?.body["max_tokens"]).toBe(AI_MAX_TOKENS);
+    expect(calls[0]?.body["max_tokens"]).toBe(AI_MAX_TOKENS_LIMIT);
   });
 
   it("429 后自动重试并成功", async () => {

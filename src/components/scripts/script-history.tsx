@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { ScriptCard } from "@/components/scripts/script-card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { describeError } from "@/lib/client/error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/client/api";
 import type { ScriptDto } from "@/lib/scripts/schemas";
@@ -46,7 +48,7 @@ export function ScriptHistory({
     setLoading(false);
 
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeError(result.error));
       return;
     }
 
@@ -60,9 +62,7 @@ export function ScriptHistory({
 
   if (scripts.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        {emptyText}
-      </div>
+      <EmptyState title={emptyText} />
     );
   }
 

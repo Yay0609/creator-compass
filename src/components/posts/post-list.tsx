@@ -2,6 +2,7 @@
 
 import { PostCard } from "@/components/posts/post-card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { PostDto } from "@/lib/posts/schemas";
 
@@ -25,9 +26,7 @@ export function PostList({
 }) {
   if (posts.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        {emptyText}
-      </div>
+      <EmptyState title={emptyText} />
     );
   }
 

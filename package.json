@@ -21,6 +21,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
+    "smoke:real": "node scripts/smoke-real-ai.mjs",
     "postinstall": "prisma generate"
   },
   "pnpm": {

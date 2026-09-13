@@ -4,6 +4,8 @@ import { useState } from "react";
 
 import { ReviewCard } from "@/components/reviews/review-card";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { describeError } from "@/lib/client/error-message";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/client/api";
 import type { ReviewDto } from "@/lib/reviews/schemas";
@@ -40,7 +42,7 @@ export function ReviewHistory({
     setLoading(false);
 
     if (!result.ok) {
-      setError(result.error.message);
+      setError(describeError(result.error));
       return;
     }
 
@@ -54,9 +56,7 @@ export function ReviewHistory({
 
   if (reviews.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-        {emptyText}
-      </div>
+      <EmptyState title={emptyText} />
     );
   }
 

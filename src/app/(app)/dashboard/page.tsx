@@ -59,6 +59,9 @@ export default async function DashboardPage() {
     { href: "/reviews", label: "复盘", count: reviewCount, unit: "份", hint: "为什么好 / 不好、下一步做什么" },
   ];
 
+  const completedSteps = steps.filter((item) => item.count > 0).length;
+  const nextStep = steps.find((item) => item.count === 0);
+
   return (
     <div className="space-y-6">
       <PageHeader title="概览" description="今天该发什么、发完表现如何，都汇总在这里。" />
@@ -94,10 +97,20 @@ export default async function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>本月用量</CardTitle>
+          <CardTitle>本月用量与闭环进度</CardTitle>
           <CardDescription>额度每月重置；日额度用于防刷，所有 AI 功能共用。</CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-4 space-y-1 rounded-md border p-3">
+            <p className="text-sm font-medium">
+              闭环进度：已完成 {completedSteps} / {steps.length} 步
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {nextStep
+                ? "下一步：" + nextStep.label + " —— " + nextStep.hint
+                : "四步已全部走通，保持「选题 -> 脚本 -> 数据 -> 复盘」的节奏。"}
+            </p>
+          </div>
           <QuotaMeter usage={usage} />
         </CardContent>
       </Card>

@@ -102,7 +102,19 @@ pnpm build
 - 作品支持编辑与删除（删除需二次确认）；复盘报告与选题、脚本一致，只做「收藏 + 忽略」，**不做硬删除**。
 - 复盘同样遵循 P2 的 AI 约定（网关、Zod 校验、422 + `details.draft`、配额预占与回滚、AiCallLog、SSE 三个响应头），配额 kind=`review` + 全局 `ai_daily`。
 
-## 11. 文档
+## 11. 打磨、配额与导出约定（P5 起生效）
+
+- 空态 / 错误态 / 加载态统一走 `src/components/ui/empty-state.tsx`、`error-state.tsx`、`inline-alert.tsx` 与 `src/app/(app)/loading.tsx`；表单与单次操作的失败用 `InlineAlert`（`role=alert`）。页面级错误边界只展示通用文案 + `digest`，**禁止**把 `error.message` 渲染给用户。
+- 无障碍基线：导航用 `aria-current`，生成进度用 `role=status` + `aria-live=polite`，纯图标按钮必须有 `aria-label`，主内容区是 `#main-content` 并由 `SkipLink` 直达；动画必须尊重 `prefers-reduced-motion`。
+- 额度提示统一用 `src/components/quota/quota-hint.tsx`：生成前说明「本次消耗 1 次、本月剩余 n 次」，用尽时给出重置时间。重置时间由 `src/lib/quota/display.ts` 从周期字符串推导，**不要**为此改动 `QuotaSnapshot` 契约。
+- `AI_MAX_TOKENS`、`AI_TIMEOUT_MS`、`AI_LOG_RETENTION_DAYS` 三个变量留空即使用默认值；其余环境变量仍必须显式配置。
+- `AiCallLog` 清理走 `src/lib/ai/log-retention.ts` 的 `pruneAiCallLogs()`（分批删除），手工入口是 `scripts/prune-ai-logs.mjs`（默认 dry-run，`--yes` 才真删）。**禁止**在请求路径里做清理；定时任务留到 P6。
+- 埋点是「派生漏斗」：只从既有表统计，不新增事件表、不上报第三方、不记录设备 / IP / UA。口径见 `src/lib/metrics/funnel.ts`，查询入口是 `scripts/funnel.mjs`。**禁止**为了埋点在 P2-P4 的服务里插入写入逻辑。
+- Markdown 导出在浏览器本地完成（`src/lib/scripts/markdown.ts` + `src/lib/client/download.ts`），不新增服务端导出接口，也不把用户内容上传到别处。
+- 公开区文案（落地页 / 隐私政策 / 服务条款）必须与实现一致：不夸大效果、不承诺流量、不声称收集未收集的数据；运营主体信息补齐前保留「待补充」标记。
+- 真实上游冒烟走 `scripts/smoke-real-ai.mjs`（`pnpm smoke:real`）：脚本自建随机测试账号、跑完即注销，需要真实 `OPENAI_API_KEY` 与已启动的服务；只用于本地 / 预发自检，**禁止**把真实密钥写进脚本或提交到仓库；用本地 mock 自检时加 `--allow-placeholder-key`。
+
+## 12. 文档
 
 设计变更先改文档再改代码：
 

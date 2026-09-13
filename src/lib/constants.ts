@@ -69,3 +69,35 @@ export const CONTENT_FORMATS = [
 export const AI_FEATURES = ["topic", "script", "review"] as const;
 
 export type AiFeature = (typeof AI_FEATURES)[number];
+// ---------- AI 网关（P2） ----------
+
+/** 单次 AI 请求硬超时（毫秒）。超时不重试：重试会把等待时间翻倍，且受 Vercel 执行时长限制。 */
+export const AI_TIMEOUT_MS = 45_000;
+
+/** 单次请求 max_tokens 上限，防止模型跑飞导致费用与延迟失控。 */
+export const AI_MAX_TOKENS = 2_000;
+
+/** 最多尝试次数（含首次）。仅 429 / 5xx / 网络错误会重试。 */
+export const AI_MAX_ATTEMPTS = 3;
+
+/** 指数退避基准：第 n 次重试等待 base * 2^(n-1) 毫秒。 */
+export const AI_RETRY_BASE_DELAY_MS = 800;
+
+/** Prompt 版本号，便于回归对比与回滚。 */
+export const AI_PROMPT_VERSION = "topic-v1";
+
+/** 每次生成的选题条数（P2 固定 5 条）。 */
+export const TOPIC_BATCH_SIZE = 5;
+
+/** 「换一批」最多携带的历史标题数，用于避免重复选题。 */
+export const TOPIC_EXCLUDE_TITLES_MAX = 10;
+
+/** 选题历史分页：默认页大小与上限。 */
+export const TOPIC_PAGE_SIZE = 20;
+export const TOPIC_PAGE_SIZE_MAX = 50;
+
+/** SSE 心跳间隔：防止中间代理因空闲断开长连接。 */
+export const SSE_HEARTBEAT_MS = 15_000;
+
+/** 每日防刷计数使用的 kind（全局计数，不分功能）。 */
+export const AI_DAILY_KIND = "ai_daily";

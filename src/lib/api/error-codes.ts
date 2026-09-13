@@ -25,7 +25,8 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   RATE_LIMITED: 429,
   QUOTA_EXCEEDED: 429,
   AI_UNAVAILABLE: 503,
-  AI_INVALID_OUTPUT: 502,
+  // 模型输出格式不可处理：422 比 502 更准确（502 语义保留给「上游整体不可用」）
+  AI_INVALID_OUTPUT: 422,
   INTERNAL: 500,
 };
 

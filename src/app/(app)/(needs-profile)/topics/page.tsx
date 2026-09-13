@@ -1,25 +1,61 @@
 import type { Metadata } from "next";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { PlaceholderPanel } from "@/components/placeholder-panel";
+import { QuotaMeter } from "@/components/quota/quota-meter";
+import { TopicGenerator } from "@/components/topics/topic-generator";
+import { TopicHistory } from "@/components/topics/topic-history";
+import { requireProfile } from "@/lib/auth/session";
+import { TOPIC_EXCLUDE_TITLES_MAX, TOPIC_PAGE_SIZE } from "@/lib/constants";
+import { prisma } from "@/lib/db/prisma";
+import { toTopicDto } from "@/lib/dto";
+import { readUsage, toTopicUsage } from "@/lib/quota/usage";
+import { encodeTopicCursor } from "@/lib/topics/schemas";
 
 export const metadata: Metadata = { title: "选题推荐" };
 
-export default function TopicsPage() {
+export default async function TopicsPage() {
+  const user = await requireProfile();
+
+  const [usage, recent, rows] = await Promise.all([
+    readUsage(user.id),
+    prisma.topicIdea.findMany({
+      where: { userId: user.id },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: TOPIC_EXCLUDE_TITLES_MAX,
+      select: { title: true },
+    }),
+    prisma.topicIdea.findMany({
+      where: { userId: user.id, isDiscarded: false },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: TOPIC_PAGE_SIZE + 1,
+    }),
+  ]);
+
+  const hasMore = rows.length > TOPIC_PAGE_SIZE;
+  const page = hasMore ? rows.slice(0, TOPIC_PAGE_SIZE) : rows;
+  const last = page[page.length - 1];
+
   return (
     <div className="space-y-6">
-      <PageHeader title="选题推荐" description="一次生成 5 条可跟选题，附推荐理由与参考方向。" />
-      <PlaceholderPanel
-        stage="P2"
-        title="热点选题推荐"
-        description="P0 阶段为占位路由；P2 将接入选题生成、收藏与「换一批」。"
-        items={[
-          "每次生成 5 条选题，含推荐理由与参考方向",
-          "展示预估热度、与账号画像的匹配度、制作难度",
-          "支持收藏、标记已用、换一批",
-          "生成失败可重试，消耗配额失败会回滚",
-        ]}
+      <PageHeader
+        title="选题推荐"
+        description="一次生成 5 条可跟选题，含推荐理由与参考方向；收藏后可在「脚本」阶段直接使用。"
       />
+
+      <QuotaMeter usage={usage} />
+
+      <TopicGenerator
+        recentTitles={recent.map((item) => item.title)}
+        initialUsage={toTopicUsage(usage)}
+      />
+
+      <section className="space-y-3">
+        <h2 className="text-base font-semibold">历史选题</h2>
+        <TopicHistory
+          initialTopics={page.map(toTopicDto)}
+          initialCursor={hasMore && last ? encodeTopicCursor(last.createdAt, last.id) : null}
+        />
+      </section>
     </div>
   );
 }

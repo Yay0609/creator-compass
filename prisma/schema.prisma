@@ -32,8 +32,11 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  sessions Session[]
-  profiles CreatorProfile[]
+  sessions      Session[]
+  profiles      CreatorProfile[]
+  topicIdeas    TopicIdea[]
+  usageCounters UsageCounter[]
+  aiCallLogs    AiCallLog[]
 
   @@index([createdAt])
 }
@@ -75,7 +78,79 @@ model CreatorProfile {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topicIdeas TopicIdea[]
 
   @@index([userId])
+}
+
+/// 选题。同一次生成共享 batchId，便于「换一批」与历史批次分组。
+/// profileSnapshot 锁定生成时的画像快照（只读），避免画像被修改后上下文漂移。
+model TopicIdea {
+  id                 String   @id @default(cuid())
+  userId             String
+  profileId          String?
+  batchId            String
+  title              String
+  angle              String?
+  reason             String
+  referenceDirection String
+  keywords           String   @default("[]") // JSON: string[]
+  score              Int      @default(0) // 0–100，模型给出的推荐优先级
+  difficulty         String? // low | medium | high
+  source             String   @default("ai") // ai | edited
+  model              String?
+  profileSnapshot    String   @default("{}") // JSON：生成时的画像快照（只读）
+  isFavorite         Boolean  @default(false)
+  isDiscarded        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, batchId])
+}
+
+/// 配额计数。period 为 Asia/Shanghai 时区的周期标识：
+/// 月额度 kind=topic|script|review 用 YYYY-MM；每日防刷 kind=ai_daily 用 YYYY-MM-DD。
+/// 限额始终以环境变量为准，本表只存 used，避免 env 调整后出现脏快照。
+model UsageCounter {
+  id        String   @id @default(cuid())
+  userId    String
+  period    String
+  kind      String
+  used      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, period, kind])
+  @@index([userId, kind])
+}
+
+/// AI 调用日志。只记录元数据（模型、耗时、token、状态），
+/// 绝不落库 prompt 原文与模型原始输出，避免用户内容与密钥外泄。
+model AiCallLog {
+  id               String   @id @default(cuid())
+  userId           String
+  kind             String // topic | script | review
+  model            String
+  status           String // ok | error | timeout | invalid_json | rate_limited
+  attempt          Int      @default(1)
+  httpStatus       Int?
+  latencyMs        Int      @default(0)
+  promptChars      Int      @default(0)
+  outputChars      Int      @default(0)
+  totalTokens      Int?
+  errorCode        String?
+  requestId        String? // 一次生成的批次标识（= TopicIdea.batchId）
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([kind, status, createdAt])
+  @@index([requestId])
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { DangerZone } from "@/components/account/danger-zone";
+import { QuotaMeter } from "@/components/quota/quota-meter";
 import { PageHeader } from "@/components/layout/page-header";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { buttonVariants } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import type { ProfileFormValues } from "@/lib/auth/schemas";
 import { requireUser } from "@/lib/auth/session";
 import { GOALS, PLATFORMS, optionLabel } from "@/lib/constants";
 import { prisma } from "@/lib/db/prisma";
+import { readUsage } from "@/lib/quota/usage";
 import { toProfileDto } from "@/lib/dto";
 
 export const metadata: Metadata = { title: "设置" };
@@ -23,6 +25,7 @@ export default async function SettingsPage() {
   });
 
   const dto = profile ? toProfileDto(profile) : null;
+  const usage = await readUsage(user.id);
 
   const defaultValues: ProfileFormValues | undefined = dto
     ? {
@@ -79,6 +82,16 @@ export default async function SettingsPage() {
               创建账号画像
             </Link>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>本月用量</CardTitle>
+          <CardDescription>额度按北京时间统计；生成失败会自动回滚，不占用额度。</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <QuotaMeter usage={usage} />
         </CardContent>
       </Card>
 

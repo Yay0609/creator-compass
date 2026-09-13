@@ -1,6 +1,7 @@
-import type { CreatorProfile, Prisma, User } from "@prisma/client";
+import type { CreatorProfile, Prisma, TopicIdea, User } from "@prisma/client";
 
 import type { ProfileInput } from "@/lib/auth/schemas";
+import type { TopicDto } from "@/lib/topics/schemas";
 
 export type PublicUser = {
   id: string;
@@ -78,7 +79,9 @@ function emptyToNull(value: string | null | undefined): string | null {
 }
 
 /** 表单输入 → 数据库写入数据（创建）。 */
-export function toProfileCreateData(input: ProfileInput): Prisma.CreatorProfileCreateWithoutUserInput {
+export function toProfileCreateData(
+  input: ProfileInput,
+): Prisma.CreatorProfileCreateWithoutUserInput {
   return {
     name: input.name,
     platform: input.platform,
@@ -106,10 +109,29 @@ export function toProfileUpdateData(
   if (input.positioning !== undefined) data.positioning = emptyToNull(input.positioning);
   if (input.targetAudience !== undefined) data.targetAudience = emptyToNull(input.targetAudience);
   if (input.tone !== undefined) data.tone = emptyToNull(input.tone);
-  if (input.contentFormats !== undefined) data.contentFormats = JSON.stringify(input.contentFormats);
+  if (input.contentFormats !== undefined)
+    data.contentFormats = JSON.stringify(input.contentFormats);
   if (input.followerCount !== undefined) data.followerCount = input.followerCount;
   if (input.weeklyCapacity !== undefined) data.weeklyCapacity = input.weeklyCapacity;
   if (input.goal !== undefined) data.goal = emptyToNull(input.goal);
 
   return data;
+}
+/** 选题 → 对外 DTO。keywords 存的是 JSON 字符串，这里解析成数组。 */
+export function toTopicDto(topic: TopicIdea): TopicDto {
+  return {
+    id: topic.id,
+    batchId: topic.batchId,
+    title: topic.title,
+    angle: topic.angle ?? "",
+    reason: topic.reason,
+    referenceDirection: topic.referenceDirection,
+    keywords: parseStringArray(topic.keywords),
+    score: topic.score,
+    difficulty: topic.difficulty ?? "",
+    source: topic.source,
+    isFavorite: topic.isFavorite,
+    isDiscarded: topic.isDiscarded,
+    createdAt: topic.createdAt.toISOString(),
+  };
 }

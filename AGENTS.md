@@ -51,7 +51,7 @@ pnpm build
 
 - 页面：`src/app/**`（公开区在根，认证在 `(auth)`，应用区在 `(app)`）
 - 组件：`src/components/**`（`ui/` 通用原子组件，`layout/` 框架级组件，领域组件按模块分目录）
-- 服务端能力：`src/lib/**`（`api/`、`db/`、`auth/`、`ai/`、`quota/`、`topics/`）
+- 服务端能力：`src/lib/**`（`api/`、`db/`、`auth/`、`ai/`、`quota/`、`topics/`、`scripts/`）
 - 契约（前后端共享的类型 + Zod）：`src/lib/<domain>/schemas.ts`，禁止两端各写一份
 - 数据模型：`prisma/schema.prisma`；业务模型按阶段新增，**禁止提前建表**
 - 测试：`tests/**`；本地联调脚本：`scripts/**`（不进生产构建）
@@ -70,7 +70,7 @@ pnpm build
 - `src/middleware.ts` 只是粗粒度体验优化（edge runtime 无法查库），**不是安全边界**，不要在其中加入业务判断。
 - API 一律使用 `withAuthedRoute()`；查询与更新用户资源时条件必须带 `userId`，查不到就返回 404。
 - 每位用户只能有一个账号画像（P1 不变量）：创建第二个返回 409，删除最后一个返回 400。
-- 注销账号是物理删除（密码 + 「注销账号」二次确认），依赖外键级联清理 sessions / profiles / topics / usageCounters / aiCallLogs。
+- 注销账号是物理删除（密码 + 「注销账号」二次确认），依赖外键级联清理 sessions / profiles / topics / scripts / usageCounters / aiCallLogs。
 - 任何密钥都不得暴露为 `NEXT_PUBLIC_*`。
 
 ## 9. AI 网关与配额约定（P2 起生效）
@@ -78,14 +78,16 @@ pnpm build
 - **所有模型调用必须走 `src/lib/ai/provider.ts`**：禁止任何地方直接 `fetch` 上游、禁止绕过网关做重试或解析。
 - 网关参数：45s 超时、`max_tokens` 上限 2000、`response_format: json_object`；仅 429 / 5xx / 网络错误做指数退避重试（800ms、2400ms，最多 3 次尝试）；**超时不重试**（重试会让等待时间翻倍）。
 - 上游返回 400 时自动摘掉 `response_format` 重试一次（不占用重试预算），以兼容不支持 JSON 模式的服务端。
-- 所有 AI 输出必须过 Zod：校验失败自动追加**一次**「修复调用」；二次失败返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 携带 5 条可编辑草稿，**并回滚配额**。不存在 `degraded: true` 之类的中间态标记。
+- 所有 AI 输出必须过 Zod：校验失败自动追加**一次**「修复调用」；二次失败返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 携带可编辑草稿（选题 5 条 / 脚本 1 份），**并回滚配额**。不存在 `degraded: true` 之类的中间态标记。
+- 脚本不落库 `fullScript`：完整口播稿与总时长由 DTO 层从 `outline` 派生；分段是唯一真源，编辑 / 降级草稿都必须写回 `outline`。
+- 选题与脚本共用进度阶段枚举 `AI_PROGRESS_PHASES`（`src/lib/constants.ts`）与 SSE 事件名，禁止各写一份。
 - 进度只回传字符数（`phase` / `chars` / `attempt`），**禁止把模型增量原文透传给客户端**。
 - 每次尝试都写 `AiCallLog`（kind / model / status / attempt / httpStatus / latencyMs / tokens / promptChars / outputChars），**绝不写 prompt 原文与模型原始输出**。
 - 配额两层：月额度（`QUOTA_TOPIC` / `QUOTA_SCRIPT` / `QUOTA_REVIEW`）+ 全局日额度（`AI_DAILY_LIMIT`，kind=`ai_daily`）；周期一律按 `Asia/Shanghai` 计算。
 - 预占必须原子：条件自增（`used: { lt: limit }`）+ 唯一约束兜底；**严禁把 AI 调用放进数据库事务**。开流前预占，任何未产出可用结果的失败（校验降级、超时、5xx、客户端断开）一律回滚。
 - 回滚必须按「预占时的 period + kind」回滚，避免跨天/跨月时误扣新周期。
 - SSE 响应必须带 `text/event-stream`、`Cache-Control: no-store`、`X-Accel-Buffering: no`，并每 15s 发心跳；开流前的错误（401/422/429）走普通 JSON，开流后的错误走 `event: error`。
-- `src/lib/ai/**`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts`、`src/lib/api/sse.ts` 都是服务端模块（`server-only`），禁止被客户端组件引用。
+- `src/lib/ai/**`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts`、`src/lib/scripts/service.ts`、`src/lib/api/sse.ts` 都是服务端模块（`server-only`），禁止被客户端组件引用。
 - 本地联调可用 `scripts/mock-openai.mjs`（只监听 127.0.0.1）；禁止把它当成生产依赖，也不要在其中放置任何真实密钥。
 
 ## 10. 文档

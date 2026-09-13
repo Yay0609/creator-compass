@@ -122,9 +122,12 @@ export function TopicCard({
         ) : null}
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button variant="outline" size="sm" disabled title="脚本生成将在 P3 开放">
-            去生成脚本（P3 开放）
-          </Button>
+          <Link
+            href={`/scripts/new?topicId=${current.id}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            去生成脚本
+          </Link>
           {showDetailLink ? (
             <Link
               href={`/topics/${current.id}`}

@@ -7,6 +7,7 @@ import { ErrorCode } from "@/lib/api/error-codes";
 import { AI_DAILY_KIND, AI_FEATURES, type AiFeature } from "@/lib/constants";
 import { prisma } from "@/lib/db/prisma";
 import { getEnv } from "@/lib/env";
+import type { ScriptUsage } from "@/lib/scripts/schemas";
 import type { QuotaSnapshot, TopicUsage, UsageSummary } from "@/lib/topics/schemas";
 
 import { dailyLimitFor, featureLabel, monthlyLimitFor, type QuotaLimits } from "./limits";
@@ -196,4 +197,9 @@ export async function readUsage(userId: string, now: Date = new Date()): Promise
 /** 生成接口的 SSE 只回传这两条与选题相关的用量。 */
 export function toTopicUsage(summary: UsageSummary): TopicUsage {
   return { topic: summary.month.topic, aiDaily: summary.day.aiDaily };
+}
+
+/** 生成接口的 SSE 只回传这两条与脚本相关的用量。 */
+export function toScriptUsage(summary: UsageSummary): ScriptUsage {
+  return { script: summary.month.script, aiDaily: summary.day.aiDaily };
 }

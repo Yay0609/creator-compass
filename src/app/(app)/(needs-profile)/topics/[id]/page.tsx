@@ -53,11 +53,22 @@ export default async function TopicDetailPage({ params }: { params: { id: string
     <div className="space-y-6">
       <PageHeader
         title="选题详情"
-        description="查看完整理由与参考方向；生成脚本将在 P3 开放。"
+        description="查看完整理由与参考方向；可以直接带着这条选题去生成脚本。"
         actions={
-          <Link href="/topics" className={buttonVariants({ variant: "outline" })}>
-            返回选题列表
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/scripts/new?topicId=${topic.id}`}
+              className={buttonVariants({ size: "sm" })}
+            >
+              去生成脚本
+            </Link>
+            <Link
+              href="/topics"
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              返回选题列表
+            </Link>
+          </div>
         }
       />
 

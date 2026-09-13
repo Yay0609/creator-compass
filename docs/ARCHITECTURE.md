@@ -32,12 +32,18 @@ src/app/
   (app)/(needs-profile)/layout.tsx  requireProfile()：无画像跳 /onboarding
     topics/page.tsx                 /topics           生成器 + 用量条 + 历史列表
     topics/[id]/page.tsx            /topics/:id       详情 + 生成信息（含画像快照）
-    scripts/  posts/  reviews/      （P3 / P4 占位）
+    scripts/page.tsx                /scripts          历史脚本列表 + 用量条
+    scripts/new/page.tsx            /scripts/new      生成页（?topicId=xxx 进入即自动生成）
+    scripts/[id]/page.tsx           /scripts/:id      查看 / 编辑 / 复制 + 生成信息
+    posts/  reviews/                （P4 占位）
   api/auth/{register,login,logout,me}/route.ts
   api/profiles/route.ts、api/profiles/[id]/route.ts
   api/topics/generate/route.ts      POST  SSE 流式生成
   api/topics/route.ts               GET 历史（游标分页）/ POST 人工保存
   api/topics/[id]/route.ts          GET / PATCH（收藏、忽略）
+  api/scripts/generate/route.ts     POST  SSE 流式生成脚本
+  api/scripts/route.ts              GET 历史（游标分页，可按 topicId 过滤）/ POST 人工保存
+  api/scripts/[id]/route.ts         GET / PATCH（编辑、收藏、忽略）
   api/usage/route.ts                GET 当前用量
   api/account/route.ts（注销）、api/account/export/route.ts（导出）
   api/health/route.ts               /api/health
@@ -65,7 +71,7 @@ src/app/
 | `TopicIdea` | P2 ✅ | batchId、title、angle、reason、referenceDirection、keywords(JSON)、score、difficulty(low/medium/high)、source(ai/edited)、model、profileSnapshot(JSON, 只读)、isFavorite、isDiscarded |
 | `UsageCounter` | P2 ✅ | period（月 `YYYY-MM` / 日 `YYYY-MM-DD`，Asia/Shanghai）、kind(topic/script/review/ai_daily)、used；`@@unique([userId, period, kind])` |
 | `AiCallLog` | P2 ✅ | kind、model、status(ok/error/timeout/invalid_json/rate_limited)、attempt、httpStatus、latencyMs、promptChars、outputChars、totalTokens、errorCode、requestId |
-| `ScriptItem` | P3 | topicId、titles、hook、outline、fullScript、tags、coverCopy、cta |
+| `Script` | P3 ✅ | batchId、topicId?、profileId?、titles(JSON)、hook、outline(JSON: [{section,seconds,content,visual}])、tags(JSON)、coverCopy、cta?、platform?、durationSec?、source(ai/edited)、model?、topicSnapshot(JSON, 只读)、profileSnapshot(JSON, 只读)、isFavorite、isDiscarded、editedAt?；**不落库 fullScript**，完整口播稿与总时长由 DTO 层从 outline 派生 |
 | `PostRecord` | P4 | platform、title、impressions、views、likes、comments、saves、shares、followsGained、completionRate |
 | `ReviewReport` | P4 | scope、postIds、highlights、problems、benchmark、nextActions、nextTopics |
 
@@ -116,6 +122,16 @@ src/app/
 | PATCH | `/api/topics/[id]` | 更新 `isFavorite` / `isDiscarded`（P2 不做硬删除） |
 | GET | `/api/usage` | 当前月额度 + 日额度用量 |
 
+已实现（P3）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/scripts/generate` | 生成脚本，**SSE 流式**；`topicId` 与 `title` 至少一个；开流前预占配额 |
+| GET | `/api/scripts` | 历史列表，游标分页（`createdAt + id`，倒序），支持 `topicId`、`favorite=1`、`includeDiscarded=1` |
+| POST | `/api/scripts` | 人工保存脚本（草稿落库 / 手动新增），不调用 AI、不消耗配额 |
+| GET | `/api/scripts/[id]` | 详情（条件带 userId） |
+| PATCH | `/api/scripts/[id]` | 编辑内容 / 收藏 / 忽略；改内容会把 `source` 置为 `edited` 并写 `editedAt` |
+
 ### 4.1 SSE 事件协议（`/api/topics/generate`）
 
 请求体（Zod strict）：
@@ -139,6 +155,29 @@ src/app/
 - 客户端断开（`request.signal` 触发）会中止上游请求、回滚配额，并停止写 `AiCallLog`。
 
 `/api/health` 分级：本地 / 预览返回 `{ status, db, ai, env, uptimeSec }`；生产只返回 `{ status }`。
+
+### 4.2 SSE 事件协议（`/api/scripts/generate`）
+
+请求体（Zod strict）：
+
+```ts
+{ topicId?: string; title?: string(≤60); extraNote?: string(≤200); durationSec?: number(15–600) }
+```
+
+- `topicId` 与 `title` 至少提供一个；带 `topicId` 时必须属于当前用户，否则 404；`durationSec` 缺省 60s。
+- **开流前**的错误走普通 JSON：401 `UNAUTHORIZED`、422 `VALIDATION_FAILED`、404 `NOT_FOUND`、429 `QUOTA_EXCEEDED`（月脚本额度）/ `RATE_LIMITED`（日额度）。
+- **开流后**（HTTP 恒为 200）事件顺序：
+
+| 事件 | 负载 | 说明 |
+| --- | --- | --- |
+| `meta` | `{ batchId, model, topicId, durationSec, usage }` | `usage` 为 `{ script, aiDaily }` |
+| `progress` | `{ phase: calling\|parsing\|validating\|repairing, chars, attempt }` | 与选题共用阶段枚举（`AI_PROGRESS_PHASES`），只报字符数 |
+| `script` | `{ script: ScriptDto }` | 一次性推送已落库的脚本（含 id） |
+| `done` | `{ batchId, scriptId, latencyMs, usage }` | 成功结束 |
+| `error` | `{ code, message, details? }` | `AI_INVALID_OUTPUT` 时 `details.draft` 为可编辑草稿 |
+
+- 脚本输出契约（`src/lib/ai/schemas/script.ts`）：`titles` 3–5 条（每条 ≤ 40 字）、`hook` ≤ 200 字、`outline` 3–8 段（`section` ≤ 40 / `seconds` 3–300 / `content` ≤ 800 / `visual` 可选 ≤ 300）、`tags` 3–10 个、`coverCopy` ≤ 40 字、`cta` 可选 ≤ 120 字。
+- `ScriptDto.fullScript` 与 `totalSeconds` 是**派生字段**（由 `outline` 拼接与求和），数据库只存分段；编辑与降级草稿都写入同一份 `outline`，不会出现两处内容不一致。
 
 ## 5. 认证与会话（P1 实现）
 
@@ -172,8 +211,14 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 | `src/lib/ai/errors.ts` | `AiError`（code / retryable / httpStatus / attempts）与 `AiCallLog.status` 映射 |
 | `src/lib/ai/json.ts` | 从模型文本里提取 JSON（剥 ```json 围栏、括号配平、数组包装） |
 | `src/lib/ai/prompts/topic.ts` | 选题提示词（system / user / 修复），带 `PROMPT_VERSION` |
-| `src/lib/ai/schemas/topic.ts` | AI 输出的 Zod 契约 + 降级草稿构建（`buildTopicDraft`） |
-| `src/lib/topics/service.ts` | 编排：prompt → 网关 → 解析 → 校验 → 修复重试 → 落库 + 写日志 |
+| `src/lib/ai/schemas/topic.ts` | 选题输出的 Zod 契约 + 降级草稿构建（`buildTopicDraft`） |
+| `src/lib/ai/schemas/script.ts` | 脚本输出的 Zod 契约 + 降级草稿构建（`buildScriptDraft`） |
+| `src/lib/ai/schemas/draft.ts` | 降级草稿的通用字段构造器（选题 / 脚本共用） |
+| `src/lib/ai/validate.ts` | `describeIssues`：把 Zod 错误压成可读列表 |
+| `src/lib/ai/attempt-log.ts` | `AiCallLog` 留痕（只写元数据，绝不写 prompt 原文） |
+| `src/lib/ai/profile-snapshot.ts` | 画像快照构建（只读），选题 / 脚本共用 |
+| `src/lib/topics/service.ts` | 选题编排：prompt → 网关 → 解析 → 校验 → 修复重试 → 落库 + 写日志 |
+| `src/lib/scripts/service.ts` | 脚本编排：同上，落库到 `Script` 并写 `topicSnapshot` / `profileSnapshot` |
 | `src/components/.../` + `src/lib/client/sse.ts` | 客户端流解析（逐个事件过 Zod）与降级草稿编辑 |
 
 调用约定：
@@ -186,12 +231,12 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 
 输出校验与降级：
 
-- AI 输出必须过 Zod（`topicListSchema`：恰好 5 条，字段/长度/评分/难度全部受约束）
+- AI 输出必须过 Zod（选题 `topicListSchema`：恰好 5 条；脚本 `scriptOutputSchema`：titles 3–5 / outline 3–8 等，字段与长度全部受约束）
 - 校验失败 → 追加**一次**「修复调用」（把原输出与具体问题回传给模型）
-- 二次失败 → 返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 为 5 条可编辑草稿（缺失字段降级为空值），**并回滚配额**
+- 二次失败 → 返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 为可编辑草稿（选题为 5 条、脚本为 1 份；缺失字段降级为空值），**并回滚配额**
 - 明确没有 `degraded: true` 这类中间态：要么产出 5 条合法选题，要么 422 + 草稿
 
-本地联调：`node scripts/mock-openai.mjs` 起一个只监听 `127.0.0.1:4010` 的 OpenAI 兼容上游，`POST /mock/mode` 可在 `ok / badjson / badcount / http500 / slow / nosupport_json_mode` 之间切换，`GET /mock/log` 可回看最近几次请求的 prompt（用于验证「换一批」是否带上了历史标题）。
+本地联调：`node scripts/mock-openai.mjs` 起一个只监听 `127.0.0.1:4010` 的 OpenAI 兼容上游，`POST /mock/mode` 可在 `ok / badjson / badcount / badscript / http500 / slow / nosupport_json_mode` 之间切换，`GET /mock/log` 可回看最近几次请求的 prompt（用于验证「换一批」是否带上了历史标题）。mock 会根据提示词里是否出现 `"titles"` 自动区分选题 / 脚本请求，`badscript` 专用于验证脚本的降级草稿链路。
 
 ## 7. 配额（P2 实现）
 
@@ -208,11 +253,12 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 - 日额度与月额度在**同一个交互式事务**内预占；任一步超限整事务回滚（已由验收用例验证：月额度超限时当日计数不会被消耗）。
 - **AI 调用一律在事务之外**（事务只做两行配额读写，避免长时间持锁）。
 - 回滚（`releaseQuota`）按「预占时的 period + kind」执行 `decrement`，并用 `used: { gt: 0 }` 兜底防负数；跨天/跨月不会误扣新周期。
+- 脚本生成复用同一套：月额度 `kind=script`、日额度 `kind=ai_daily`、`AiCallLog.kind="script"`，降级与超时同样回滚。
 - 开流前预占，任何未产出可用结果的失败（校验降级、超时、5xx、上游拒绝、客户端断开）都在回滚分支里回滚。
 
 ## 8. 安全基线
 
-- 密钥仅服务端；`src/lib/env.ts`、`src/lib/auth/*`、`src/lib/ai/*`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts` 带 `server-only`；禁止 `NEXT_PUBLIC_*` 泄漏
+- 密钥仅服务端；`src/lib/env.ts`、`src/lib/auth/*`、`src/lib/ai/*`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts`、`src/lib/scripts/service.ts` 带 `server-only`；禁止 `NEXT_PUBLIC_*` 泄漏
 - 环境变量延迟校验：模块加载不抛错，`getEnv()` 首次调用时校验
 - 密码 bcryptjs 哈希（成本 10）；登录失败统一返回「邮箱或密码错误」，且账号不存在时也执行一次哈希比对，避免通过耗时枚举邮箱
 - 会话明文不出服务端，落库为 HMAC 摘要；Cookie `httpOnly` + `secure`(prod) + `sameSite: "lax"`

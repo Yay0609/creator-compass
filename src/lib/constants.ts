@@ -101,3 +101,32 @@ export const SSE_HEARTBEAT_MS = 15_000;
 
 /** 每日防刷计数使用的 kind（全局计数，不分功能）。 */
 export const AI_DAILY_KIND = "ai_daily";
+
+// ---------- AI 进度（选题 / 脚本共用） ----------
+
+/** AI 生成的进度阶段。选题与脚本共用一份枚举，避免两端漂移。 */
+export const AI_PROGRESS_PHASES = ["calling", "parsing", "validating", "repairing"] as const;
+
+export type AiProgressPhase = (typeof AI_PROGRESS_PHASES)[number];
+
+// ---------- 脚本（P3） ----------
+
+/** 脚本 Prompt 版本号，便于回归对比与回滚。 */
+export const SCRIPT_PROMPT_VERSION = "script-v1";
+
+/** 标题候选数量：至少 3 个，最多 5 个。 */
+export const SCRIPT_TITLES_MIN = 3;
+export const SCRIPT_TITLES_MAX = 5;
+
+/** 分段脚本的段数范围。 */
+export const SCRIPT_OUTLINE_MIN = 3;
+export const SCRIPT_OUTLINE_MAX = 8;
+
+/** 目标时长（秒）：默认 60s，可调范围 15s–600s。 */
+export const SCRIPT_DURATION_DEFAULT_SEC = 60;
+export const SCRIPT_DURATION_MIN_SEC = 15;
+export const SCRIPT_DURATION_MAX_SEC = 600;
+
+/** 脚本历史分页：默认页大小与上限。 */
+export const SCRIPT_PAGE_SIZE = 20;
+export const SCRIPT_PAGE_SIZE_MAX = 50;

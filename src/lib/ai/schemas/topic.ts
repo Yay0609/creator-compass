@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TOPIC_BATCH_SIZE } from "@/lib/constants";
 
 import { safeExtractJsonValue } from "../json";
+import { draftInt, draftStringArray, draftText } from "./draft";
 
 /**
  * 选题相关的 Zod 契约（AI 输出 + 降级草稿）。
@@ -35,64 +36,19 @@ export const topicListSchema = z.object({
 
 export type TopicList = z.infer<typeof topicListSchema>;
 
-/** 把 Zod 错误压成「字段: 原因」的可读列表，用于修复提示词与日志。 */
-export function describeIssues(error: z.ZodError): string[] {
-  return error.issues.map((issue) => {
-    const path = issue.path.join(".") || "(root)";
-    return `${path}: ${issue.message}`;
-  });
-}
+export { describeIssues } from "../validate";
 
 // ---------- 降级草稿 ----------
 // 二次校验失败时给用户一份「可编辑草稿」：字段尽量保留模型给到的内容，
 // 缺失或不合法的一律降级为空值，由用户补全后再保存。
-
-const draftText = (max: number) =>
-  z.preprocess((value) => {
-    if (typeof value === "string") {
-      return value.trim().slice(0, max);
-    }
-    if (typeof value === "number" || typeof value === "boolean") {
-      return String(value);
-    }
-    return "";
-  }, z.string());
-
-const draftKeywords = z.preprocess((value) => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((item) => {
-      if (typeof item === "string") {
-        return item.trim().slice(0, 24);
-      }
-      if (typeof item === "number") {
-        return String(item);
-      }
-      return "";
-    })
-    .filter((item) => item.length > 0)
-    .slice(0, 6);
-}, z.array(z.string()));
-
-const draftScore = z.preprocess((value) => {
-  const numeric =
-    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  if (!Number.isFinite(numeric)) {
-    return null;
-  }
-  return Math.min(100, Math.max(0, Math.round(numeric)));
-}, z.number().int().nullable());
 
 export const topicDraftItemSchema = z.object({
   title: draftText(60),
   angle: draftText(120),
   reason: draftText(500),
   referenceDirection: draftText(500),
-  keywords: draftKeywords,
-  score: draftScore,
+  keywords: draftStringArray(24, 6),
+  score: draftInt(0, 100),
   difficulty: draftText(16),
 });
 

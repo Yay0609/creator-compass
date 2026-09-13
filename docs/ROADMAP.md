@@ -8,8 +8,8 @@
 | --- | --- | --- |
 | P0 | 项目骨架 | 已完成（tag `p0-skeleton`） |
 | P1 | 认证与账号画像 | 已完成（tag `p1-auth`） |
-| P2 | 热点选题推荐 | 已完成（待人工确认，tag `p2-topics`） |
-| P3 | AI 标题与脚本 | 未开始 |
+| P2 | 热点选题推荐 | 已完成（tag `p2-topics`） |
+| P3 | AI 标题与脚本 | 已完成（待人工确认） |
 | P4 | 数据录入与复盘 | 未开始 |
 | P5 | 打磨与配额 | 未开始 |
 | P6 | 部署上线 | 未开始 |
@@ -90,7 +90,7 @@
 - [x] 日额度 `AI_DAILY_LIMIT=3` 时第 4 次返回 429 `RATE_LIMITED`，月额度只消耗 3 次
 - [x] 注销级联删除：用户删除后 topics / counters / logs / sessions / profiles 残留均为 0
 - [x] 四件套全部通过（`lint` / `tsc --noEmit` / `test` / `build`）
-- [ ] 375px / 1440px 下 `/topics` 四种态（生成中、成功、失败、草稿降级）需人工在浏览器确认
+- [x] 375px / 1440px 下 `/topics` 四种态（生成中、成功、失败、草稿降级）已人工确认通过
 
 遗留说明：
 
@@ -99,12 +99,46 @@
 - `AiCallLog` 无自动清理策略，量大后需在 P5 评估保留期
 - SSE 在 Vercel Serverless 的执行时长限制需在 P6 验证
 
-## P3 AI 标题与脚本
+## P3 AI 标题与脚本（已完成）
 
-- `ScriptItem` 模型 + 脚本 Prompt
-- 由选题一键生成：5 个标题候选、开头钩子、分段脚本、标签、封面文案
-- 脚本可编辑保存、可复制；生成时复用 `TopicIdea.profileSnapshot` 锁定画像上下文
-- 验收：手改后刷新仍在；缺少 AI 配置时给出可读错误而非白屏
+交付：
+
+- 数据模型：`Script`（含只读 `topicSnapshot` / `profileSnapshot`），迁移 `20260913073228_add_scripts`
+- 脚本领域：`src/lib/ai/prompts/script.ts`（`SCRIPT_PROMPT_VERSION = "script-v1"`）、`src/lib/ai/schemas/script.ts`（Zod 契约 + 降级草稿）、`src/lib/scripts/service.ts`（编排）
+- `POST /api/scripts/generate`：**SSE 流式**（`meta → progress* → script → done | error`），复用 P2 的网关 / 配额（`kind=script` + `ai_daily`）/ `AiCallLog` / 进度协议
+- `/scripts`：用量条 + 游标分页历史；`/scripts/new`：从选题一键进入即自动生成，也支持手填主题；`/scripts/[id]`：查看 / 编辑 / 收藏 / 四类复制（主标题、口播稿、标签、封面文案）
+- 选题卡片与选题详情页的「去生成脚本」入口已打通（替换 P2 的置灰按钮）
+- 「重新生成」产生新记录并保留历史；编辑保存后 `source` 置为 `edited` 并写 `editedAt`
+- 不落库 `fullScript`：完整口播稿与总时长由 DTO 层从 `outline` 派生，避免分段与整稿两处存储不一致
+- 复用抽取：`ai/schemas/draft.ts`（降级草稿构造器）、`ai/attempt-log.ts`（AiCallLog 留痕）、`ai/profile-snapshot.ts`（画像快照）、`ai/validate.ts`（`describeIssues`）、`AI_PROGRESS_PHASES` 统一上提到 `constants`
+- 本地 mock 扩展：脚本结构 + `badscript` 模式，按提示词自动区分选题 / 脚本请求
+
+**明确不做**：数据录入、复盘、Markdown 分镜导出、爬虫、自动发布。
+
+验收结果（端到端脚本两轮，62 + 23 项断言，另有 101 项单测）：
+
+- [x] 迁移成功；脚本额度初始 0/10、日额度 0/20
+- [x] SSE 响应头与事件顺序正确：`meta → progress×3 → script → done`，progress 只含 `phase/chars/attempt`
+- [x] 落库字段正确：标题候选、分段、标签、封面文案、`topicSnapshot`、`profileSnapshot`；`totalSeconds` 与 `fullScript` 由分段派生
+- [x] 生成后 `script` 1/10、`ai_daily` 1/20
+- [x] 「重新生成」产生新记录且历史同时保留两条；手填标题同样可用
+- [x] 编辑保存后刷新仍在：`source=edited`、`editedAt` 写入、总时长按新分段重算、`fullScript` 同步更新
+- [x] 收藏不会把 `source` 改回 `ai`
+- [x] `badscript` 触发 1 次修复调用后返回 422 `AI_INVALID_OUTPUT` + 可编辑草稿，配额已回滚
+- [x] 上游 5xx 返回 `AI_UNAVAILABLE` 且配额回滚；45s 超时返回错误事件且 `AiCallLog` 落 `timeout`
+- [x] 上游不支持 `response_format` 时自动摘掉该参数重试成功
+- [x] `AiCallLog` 只落元数据（kind/model/status/attempt/httpStatus/latencyMs/promptChars/outputChars/tokens/requestId），不含 prompt 原文与模型输出
+- [x] 越权：他人脚本详情 / 编辑 404、用他人选题生成 404；未登录生成 401 且不建立 SSE
+- [x] 参数校验：时长越界 422、缺少 `topicId` 与 `title` 422
+- [x] 注销级联删除：`Script` / `UsageCounter` / `AiCallLog` 均无残留
+- [x] 四件套全部通过（`lint` / `tsc --noEmit` / `test` / `build`）
+- [ ] 375px / 1440px 下 `/scripts`、`/scripts/new`、`/scripts/[id]` 需人工在浏览器确认
+
+遗留说明：
+
+- 本轮同样使用本地 mock 验收（`OPENAI_API_KEY` 仍是占位值），真实上游冒烟推迟到 P6 替换 Key 后执行
+- 「重新生成」通过新增记录实现，历史会持续累积；P5 可评估批量归档 / 清理
+- Markdown 分镜表导出按计划留到 P5 评估
 
 ## P4 数据录入与复盘
 

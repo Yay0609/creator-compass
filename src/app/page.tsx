@@ -8,12 +8,12 @@ import { APP_DESCRIPTION, APP_NAME } from "@/lib/constants";
 const FEATURES = [
   {
     title: "热点选题推荐",
-    stage: "P2",
+    stage: "已上线",
     description: "根据平台、赛道与账号画像，一次生成 5 条可跟选题，附推荐理由与参考方向。",
   },
   {
     title: "AI 标题与脚本",
-    stage: "P3",
+    stage: "已上线",
     description: "由选题生成标题候选、开头钩子、分段脚本框架与标签，直接照着拍。",
   },
   {
@@ -27,7 +27,7 @@ export default function LandingPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-12 px-6 py-16">
       <section className="space-y-4">
-        <Badge variant="secondary">P0 骨架版本 · 功能开发中</Badge>
+        <Badge variant="secondary">P3 已上线 · 选题与脚本可用</Badge>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{APP_NAME}</h1>
         <p className="max-w-2xl text-muted-foreground">{APP_DESCRIPTION}</p>
         <p className="text-sm text-muted-foreground">
@@ -38,7 +38,7 @@ export default function LandingPage() {
             进入应用
           </Link>
           <Link href="/register" className={buttonVariants({ variant: "outline" })}>
-            注册（P1 开放）
+            注册
           </Link>
         </div>
       </section>

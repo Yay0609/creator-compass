@@ -11,18 +11,29 @@
  *   curl http://127.0.0.1:4010/mock/log
  *
  * 模式：
- *   ok                   正常返回 5 条合法选题
+ *   ok                   正常返回（选题 5 条 / 脚本 1 份）
  *   badjson              返回非 JSON 文本（触发修复重试）
- *   badcount             只返回 3 条（触发 Zod 校验失败 -> 修复重试 -> 降级草稿）
+ *   badcount             选题只返回 3 条；脚本只给 2 段（触发 Zod 校验失败 -> 修复重试 -> 降级草稿）
+ *   badscript            返回结构不合法的脚本 JSON（标题不足 / 钩子为空），用于验证脚本降级
  *   http500              返回 500（触发指数退避重试，最终失败并回滚配额）
  *   slow                 延迟 60s 再返回（触发 45s 超时）
  *   nosupport_json_mode  带 response_format 时返回 400，去掉后正常返回
+ *
+ * 请求类型自动识别：提示词里出现 "titles" 视为脚本请求，否则视为选题请求。
  */
 import http from "node:http";
 
 const PORT = Number(process.env.MOCK_PORT ?? 4010);
 const HOST = process.env.MOCK_HOST ?? "127.0.0.1";
-const MODES = ["ok", "badjson", "badcount", "http500", "slow", "nosupport_json_mode"];
+const MODES = [
+  "ok",
+  "badjson",
+  "badcount",
+  "badscript",
+  "http500",
+  "slow",
+  "nosupport_json_mode",
+];
 
 let mode = "ok";
 const calls = [];
@@ -37,6 +48,41 @@ function items(count) {
     score: 90 - index * 5,
     difficulty: ["low", "medium", "high"][index % 3],
   }));
+}
+
+/** 脚本结构（P3）：与 src/lib/ai/schemas/script.ts 的契约保持一致。 */
+function scriptPayload() {
+  return {
+    titles: [
+      "mock 标题一：三分钟讲清一个具体问题",
+      "mock 标题二：新手最容易踩的 3 个坑",
+      "mock 标题三：我用了半年才想明白的一件事",
+    ],
+    hook: "mock 数据：如果你也卡在这一步，先别划走，接下来 60 秒帮你省下一个月试错。",
+    outline: [
+      { section: "开场钩子", seconds: 8, content: "mock 口播：先说结论，再说为什么。", visual: "真人出镜 + 大字幕" },
+      { section: "痛点展开", seconds: 20, content: "mock 口播：大多数人卡住的地方其实是这里。", visual: "屏幕录制" },
+      { section: "方法一", seconds: 20, content: "mock 口播：第一步，先把问题拆成两半。", visual: "分步骤字幕" },
+      { section: "结尾引导", seconds: 12, content: "mock 口播：你卡在哪一步？评论区告诉我。", visual: "看向镜头" },
+    ],
+    tags: ["mock", "新手", "口播"],
+    coverCopy: "mock 封面文案",
+    cta: "关注我，下期讲怎么复盘。",
+  };
+}
+
+/** 故意不合法的脚本（标题只有 1 个、钩子为空、分段只有 2 段），用于验证降级草稿。 */
+function badScriptPayload() {
+  return {
+    titles: ["只有一个标题候选"],
+    hook: "",
+    outline: [
+      { section: "开场", seconds: 0, content: "内容太短", visual: "" },
+      { section: "结尾", seconds: 0, content: "内容太短", visual: "" },
+    ],
+    tags: ["只有一个标签"],
+    coverCopy: "封面文案",
+  };
 }
 
 function completion(content) {
@@ -112,9 +158,11 @@ const server = http.createServer(async (req, res) => {
     const prompt = Array.isArray(body?.messages)
       ? body.messages.map((message) => `${message.role}: ${message.content}`).join("\n")
       : "";
+    const wantsScript = prompt.includes('"titles"');
     const record = {
       at: new Date().toISOString(),
       mode,
+      kind: wantsScript ? "script" : "topic",
       model: body?.model ?? null,
       hasResponseFormat: body?.response_format !== undefined,
       maxTokens: body?.max_tokens ?? null,
@@ -128,7 +176,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     console.log(
-      `[mock] ${mode} <- chat/completions（prompt ${prompt.length} 字，max_tokens=${record.maxTokens}，response_format=${record.hasResponseFormat}）`,
+      `[mock] ${mode} <- chat/completions（${record.kind}，prompt ${prompt.length} 字，max_tokens=${record.maxTokens}，response_format=${record.hasResponseFormat}）`,
     );
 
     if (mode === "http500") {
@@ -138,7 +186,11 @@ const server = http.createServer(async (req, res) => {
 
     if (mode === "slow") {
       await new Promise((resolve) => setTimeout(resolve, 60_000));
-      sendJson(res, 200, completion(JSON.stringify({ items: items(5) })));
+      sendJson(
+        res,
+        200,
+        completion(JSON.stringify(wantsScript ? scriptPayload() : { items: items(5) })),
+      );
       return;
     }
 
@@ -158,11 +210,24 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (mode === "badcount") {
-      sendJson(res, 200, completion(JSON.stringify({ items: items(3) })));
+      sendJson(
+        res,
+        200,
+        completion(JSON.stringify(wantsScript ? badScriptPayload() : { items: items(3) })),
+      );
       return;
     }
 
-    sendJson(res, 200, completion(JSON.stringify({ items: items(5) })));
+    if (mode === "badscript") {
+      sendJson(res, 200, completion(JSON.stringify(badScriptPayload())));
+      return;
+    }
+
+    sendJson(
+      res,
+      200,
+      completion(JSON.stringify(wantsScript ? scriptPayload() : { items: items(5) })),
+    );
     return;
   }
 

@@ -2,8 +2,10 @@ import "server-only";
 
 import type { CreatorProfile } from "@prisma/client";
 
-import { AiError, type AiAttempt } from "@/lib/ai/errors";
+import { createAttemptLogger, type AttemptLogger } from "@/lib/ai/attempt-log";
+import { AiError } from "@/lib/ai/errors";
 import { extractJsonValue } from "@/lib/ai/json";
+import { buildProfileSnapshot, parseJsonArray } from "@/lib/ai/profile-snapshot";
 import {
   buildTopicMessages,
   buildTopicRepairMessages,
@@ -67,45 +69,6 @@ export type GenerateTopicsResult = {
   topics: TopicDto[];
 };
 
-function clip(value: string | null, max: number): string | null {
-  if (value === null) {
-    return null;
-  }
-  return value.length > max ? value.slice(0, max) : value;
-}
-
-function parseJsonArray(raw: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((item): item is string => typeof item === "string");
-    }
-  } catch {
-    // 数据损坏时退化为空数组
-  }
-  return [];
-}
-
-/** 生成时的画像快照（只读），避免画像日后被修改导致上下文漂移。 */
-function buildProfileSnapshot(profile: CreatorProfile): string {
-  return JSON.stringify({
-    capturedAt: new Date().toISOString(),
-    promptVersion: AI_PROMPT_VERSION,
-    profileId: profile.id,
-    name: clip(profile.name, 40),
-    platform: profile.platform,
-    niche: clip(profile.niche, 40),
-    subNiche: clip(profile.subNiche, 40),
-    positioning: clip(profile.positioning, 120),
-    targetAudience: clip(profile.targetAudience, 120),
-    tone: profile.tone,
-    contentFormats: parseJsonArray(profile.contentFormats),
-    followerCount: profile.followerCount,
-    weeklyCapacity: profile.weeklyCapacity,
-    goal: profile.goal,
-  });
-}
-
 function toPromptContext(
   profile: CreatorProfile,
   params: GenerateTopicsParams,
@@ -149,59 +112,6 @@ function validateTopics(text: string): ValidationOutcome {
   }
 
   return { ok: true, items: parsed.data.items };
-}
-
-type AttemptLogger = {
-  write: (
-    attempts: AiAttempt[],
-    meta: { promptChars: number; outputChars: number },
-  ) => Promise<void>;
-};
-
-/**
- * 每次尝试都落一条 AiCallLog（含重试与失败）。
- * 只写元数据：绝不记录 prompt 原文与模型原始输出。
- * 客户端已断开或写库失败都不影响主流程。
- */
-function createAttemptLogger(options: {
-  userId: string;
-  kind: string;
-  model: string;
-  requestId: string;
-  signal?: AbortSignal;
-}): AttemptLogger {
-  return {
-    async write(attempts, meta) {
-      if (options.signal?.aborted || attempts.length === 0) {
-        return;
-      }
-
-      try {
-        await prisma.$transaction(
-          attempts.map((attempt) =>
-            prisma.aiCallLog.create({
-              data: {
-                userId: options.userId,
-                kind: options.kind,
-                model: options.model,
-                status: attempt.status,
-                attempt: attempt.attempt,
-                httpStatus: attempt.httpStatus,
-                latencyMs: attempt.latencyMs,
-                errorCode: attempt.errorCode,
-                totalTokens: attempt.totalTokens,
-                promptChars: meta.promptChars,
-                outputChars: meta.outputChars,
-                requestId: options.requestId,
-              },
-            }),
-          ),
-        );
-      } catch (error) {
-        console.error("[ai] 写入 AiCallLog 失败", error);
-      }
-    },
-  };
 }
 
 export async function generateTopics(params: GenerateTopicsParams): Promise<GenerateTopicsResult> {
@@ -265,7 +175,7 @@ export async function generateTopics(params: GenerateTopicsParams): Promise<Gene
     items = secondOutcome.items;
   }
 
-  const profileSnapshot = buildProfileSnapshot(params.profile);
+  const profileSnapshot = buildProfileSnapshot(params.profile, AI_PROMPT_VERSION);
 
   // SQLite 不支持 createMany，用事务数组逐条创建，保证「要么全成要么全不成」
   const rows = await prisma.$transaction(

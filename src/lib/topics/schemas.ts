@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { topicDraftItemSchema } from "@/lib/ai/schemas/topic";
-import { TOPIC_BATCH_SIZE, TOPIC_EXCLUDE_TITLES_MAX, TOPIC_PAGE_SIZE_MAX } from "@/lib/constants";
+import {
+  AI_PROGRESS_PHASES,
+  TOPIC_BATCH_SIZE,
+  TOPIC_EXCLUDE_TITLES_MAX,
+  TOPIC_PAGE_SIZE_MAX,
+} from "@/lib/constants";
 
 /**
  * 选题模块的共享契约：对外 DTO、请求入参、游标与 SSE 事件。
@@ -165,13 +170,15 @@ export const SSE_EVENTS = {
   meta: "meta",
   progress: "progress",
   topic: "topic",
+  script: "script",
   done: "done",
   error: "error",
 } as const;
 
 export type SseEventName = (typeof SSE_EVENTS)[keyof typeof SSE_EVENTS];
 
-export const TOPIC_PROGRESS_PHASES = ["calling", "parsing", "validating", "repairing"] as const;
+/** 阶段枚举的唯一真源在 constants，这里保留旧名字以兼容已有引用。 */
+export const TOPIC_PROGRESS_PHASES = AI_PROGRESS_PHASES;
 
 export const sseMetaSchema = z.object({
   batchId: z.string(),
@@ -181,7 +188,7 @@ export const sseMetaSchema = z.object({
 });
 
 export const sseProgressSchema = z.object({
-  phase: z.enum(TOPIC_PROGRESS_PHASES),
+  phase: z.enum(AI_PROGRESS_PHASES),
   /** 已接收字符数：只暴露进度，不透传模型原文 */
   chars: z.number().int(),
   attempt: z.number().int(),

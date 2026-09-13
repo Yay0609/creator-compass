@@ -1,4 +1,13 @@
 import {
+  sseScriptDoneSchema,
+  sseScriptMetaSchema,
+  sseScriptSchema,
+  type SseScriptDone,
+  type SseScriptEvent,
+  type SseScriptMeta,
+  type SseScriptProgress,
+} from "@/lib/scripts/schemas";
+import {
   sseDoneSchema,
   sseErrorSchema,
   sseMetaSchema,
@@ -36,6 +45,11 @@ export type SseHandlers = {
   onMeta?: (data: SseMeta) => void;
   onProgress?: (data: SseProgress) => void;
   onTopic?: (data: SseTopic) => void;
+  /** 脚本生成：meta / progress 事件结构与选题共用 */
+  onScriptMeta?: (data: SseScriptMeta) => void;
+  onScriptProgress?: (data: SseScriptProgress) => void;
+  onScript?: (data: SseScriptEvent) => void;
+  onScriptDone?: (data: SseScriptDone) => void;
   onDone?: (data: SseDone) => void;
   onError?: (data: SseError) => void;
 };
@@ -70,13 +84,24 @@ function dispatchBlock(block: string, handlers: SseHandlers): void {
 
   switch (event) {
     case "meta": {
-      const parsed = sseMetaSchema.safeParse(payload);
-      if (parsed.success) handlers.onMeta?.(parsed.data);
+      // 选题与脚本的 meta 结构不同：按 schema 逐个试，命中哪个就派发哪个
+      const topicMeta = sseMetaSchema.safeParse(payload);
+      if (topicMeta.success) {
+        handlers.onMeta?.(topicMeta.data);
+        return;
+      }
+
+      const scriptMeta = sseScriptMetaSchema.safeParse(payload);
+      if (scriptMeta.success) handlers.onScriptMeta?.(scriptMeta.data);
       return;
     }
     case "progress": {
+      // phase / chars / attempt 两端结构一致，同时派发给两个回调
       const parsed = sseProgressSchema.safeParse(payload);
-      if (parsed.success) handlers.onProgress?.(parsed.data);
+      if (parsed.success) {
+        handlers.onProgress?.(parsed.data);
+        handlers.onScriptProgress?.(parsed.data);
+      }
       return;
     }
     case "topic": {
@@ -84,9 +109,20 @@ function dispatchBlock(block: string, handlers: SseHandlers): void {
       if (parsed.success) handlers.onTopic?.(parsed.data);
       return;
     }
+    case "script": {
+      const parsed = sseScriptSchema.safeParse(payload);
+      if (parsed.success) handlers.onScript?.(parsed.data);
+      return;
+    }
     case "done": {
-      const parsed = sseDoneSchema.safeParse(payload);
-      if (parsed.success) handlers.onDone?.(parsed.data);
+      const topicDone = sseDoneSchema.safeParse(payload);
+      if (topicDone.success) {
+        handlers.onDone?.(topicDone.data);
+        return;
+      }
+
+      const scriptDone = sseScriptDoneSchema.safeParse(payload);
+      if (scriptDone.success) handlers.onScriptDone?.(scriptDone.data);
       return;
     }
     case "error": {

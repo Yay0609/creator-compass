@@ -1,6 +1,7 @@
-import type { CreatorProfile, Prisma, TopicIdea, User } from "@prisma/client";
+import type { CreatorProfile, Prisma, Script, TopicIdea, User } from "@prisma/client";
 
 import type { ProfileInput } from "@/lib/auth/schemas";
+import type { ScriptDto, ScriptOutlineItemDto } from "@/lib/scripts/schemas";
 import type { TopicDto } from "@/lib/topics/schemas";
 
 export type PublicUser = {
@@ -133,5 +134,99 @@ export function toTopicDto(topic: TopicIdea): TopicDto {
     isFavorite: topic.isFavorite,
     isDiscarded: topic.isDiscarded,
     createdAt: topic.createdAt.toISOString(),
+  };
+}
+
+// ---------- 脚本（P3） ----------
+
+/** 分段脚本存的是 JSON 字符串；数据损坏时退化为空数组，不影响页面渲染。 */
+function parseOutline(raw: string): ScriptOutlineItemDto[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.flatMap((item) => {
+      if (item === null || typeof item !== "object") {
+        return [];
+      }
+
+      const record = item as Record<string, unknown>;
+      const section = typeof record["section"] === "string" ? record["section"] : "";
+      const content = typeof record["content"] === "string" ? record["content"] : "";
+      const rawSeconds = record["seconds"];
+
+      if (section.trim().length === 0 && content.trim().length === 0) {
+        return [];
+      }
+
+      return [
+        {
+          section,
+          seconds:
+            typeof rawSeconds === "number" && Number.isFinite(rawSeconds)
+              ? Math.round(rawSeconds)
+              : 0,
+          content,
+          visual: typeof record["visual"] === "string" ? record["visual"] : "",
+        },
+      ];
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** 完整口播稿由分段派生（不落库），避免同一份内容两处存储导致不一致。 */
+function deriveFullScript(outline: ScriptOutlineItemDto[]): string {
+  return outline
+    .map((item) => (item.section.trim().length > 0 ? `【${item.section}】\n${item.content}` : item.content))
+    .filter((block) => block.trim().length > 0)
+    .join("\n\n");
+}
+
+function parseTopicTitle(raw: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === "object") {
+      const title = (parsed as Record<string, unknown>)["title"];
+      if (typeof title === "string" && title.trim().length > 0) {
+        return title;
+      }
+    }
+  } catch {
+    // 快照损坏时按「无来源选题」处理
+  }
+  return null;
+}
+
+/** 脚本 → 对外 DTO。titles / outline / tags 存的是 JSON 字符串，这里解析成结构化数据。 */
+export function toScriptDto(script: Script): ScriptDto {
+  const titles = parseStringArray(script.titles);
+  const outline = parseOutline(script.outline);
+
+  return {
+    id: script.id,
+    batchId: script.batchId,
+    topicId: script.topicId,
+    topicTitle: parseTopicTitle(script.topicSnapshot),
+    titles,
+    title: titles[0] ?? "（未命名脚本）",
+    hook: script.hook,
+    outline,
+    tags: parseStringArray(script.tags),
+    coverCopy: script.coverCopy,
+    cta: script.cta ?? "",
+    fullScript: deriveFullScript(outline),
+    totalSeconds: outline.reduce((total, item) => total + item.seconds, 0),
+    platform: script.platform ?? "",
+    source: script.source,
+    model: script.model ?? null,
+    isFavorite: script.isFavorite,
+    isDiscarded: script.isDiscarded,
+    editedAt: script.editedAt ? script.editedAt.toISOString() : null,
+    createdAt: script.createdAt.toISOString(),
+    updatedAt: script.updatedAt.toISOString(),
   };
 }

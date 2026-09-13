@@ -35,6 +35,7 @@ model User {
   sessions      Session[]
   profiles      CreatorProfile[]
   topicIdeas    TopicIdea[]
+  scripts       Script[]
   usageCounters UsageCounter[]
   aiCallLogs    AiCallLog[]
 
@@ -80,6 +81,7 @@ model CreatorProfile {
 
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   topicIdeas TopicIdea[]
+  scripts    Script[]
 
   @@index([userId])
 }
@@ -107,6 +109,7 @@ model TopicIdea {
 
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  scripts Script[]
 
   @@index([userId, createdAt])
   @@index([userId, batchId])
@@ -153,4 +156,38 @@ model AiCallLog {
   @@index([userId, createdAt])
   @@index([kind, status, createdAt])
   @@index([requestId])
+}
+/// 脚本。由选题（或手填标题）生成：多个标题候选 + 开头钩子 + 分段脚本 + 标签 + 封面文案。
+/// 不落库「完整口播稿」：它由 outline 在 DTO 层派生，避免同一份内容两处存储导致不一致。
+model Script {
+  id              String    @id @default(cuid())
+  userId          String
+  topicId         String?
+  profileId       String?
+  batchId         String
+  titles          String    @default("[]") // JSON: string[]，标题候选；titles[0] 视为主标题
+  hook            String    @default("") // 开头钩子
+  outline         String    @default("[]") // JSON: [{ section, seconds, content, visual? }]
+  tags            String    @default("[]") // JSON: string[]
+  coverCopy       String    @default("") // 封面文案
+  cta             String? // 结尾引导
+  platform        String? // 生成时的平台（画像快照冗余，便于列表展示）
+  durationSec     Int? // 目标时长（秒）
+  source          String    @default("ai") // ai | edited
+  model           String?
+  topicSnapshot   String    @default("{}") // JSON：生成时的选题快照（只读）
+  profileSnapshot String    @default("{}") // JSON：生成时的画像快照（只读）
+  isFavorite      Boolean   @default(false)
+  isDiscarded     Boolean   @default(false)
+  editedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic   TopicIdea?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, topicId])
+  @@index([userId, batchId])
 }

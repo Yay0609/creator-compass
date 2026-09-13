@@ -61,13 +61,13 @@ export default async function DashboardPage() {
       </Card>
 
       <PlaceholderPanel
-        stage="P2"
+        stage="P4"
         title="今日推荐"
-        description="P1 只完成了账号与画像体系，选题推荐会在 P2 接入。"
+        description="选题与脚本已经可用；作品数据录入与复盘报告会在 P4 接入。"
         items={[
-          "P2：根据你的平台与赛道生成 5 条可跟选题",
-          "P3：由选题生成标题、开头与脚本框架",
-          "P4：录入作品数据并生成复盘报告",
+          "已在 P2 上线：根据平台与赛道生成 5 条可跟选题",
+          "已在 P3 上线：由选题生成标题、开头、分段口播稿与标签",
+          "P4 规划：录入作品数据，回答「哪条好、为什么、下一步怎么做」",
         ]}
       />
     </div>

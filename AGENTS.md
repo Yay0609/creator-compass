@@ -114,7 +114,18 @@ pnpm build
 - 公开区文案（落地页 / 隐私政策 / 服务条款）必须与实现一致：不夸大效果、不承诺流量、不声称收集未收集的数据；运营主体信息补齐前保留「待补充」标记。
 - 真实上游冒烟走 `scripts/smoke-real-ai.mjs`（`pnpm smoke:real`）：脚本自建随机测试账号、跑完即注销，需要真实 `OPENAI_API_KEY` 与已启动的服务；只用于本地 / 预发自检，**禁止**把真实密钥写进脚本或提交到仓库；用本地 mock 自检时加 `--allow-placeholder-key`。
 
-## 12. 文档
+## 12. 生产库与部署约定（P6 起生效）
+
+- 双 schema：`prisma/schema.prisma`（本地 SQLite）与 `prisma/postgres/schema.prisma`（生产 Postgres）。**改任何模型都必须同时改两份**，模型部分必须逐字一致，只允许 `datasource` 不同；提交前跑 `pnpm schema:check`。
+- 迁移：本地照旧 `pnpm db:migrate`（SQLite）；生产只用 `pnpm db:status:pg` / `pnpm db:migrate:pg`（走 `DIRECT_URL` 直连）。**禁止**把 SQLite 迁移或 `migrate reset` 类命令用到生产。
+- 生成客户端：`prisma generate` 会覆盖同一份 `node_modules/.prisma/client`；本地误跑 `pnpm db:generate:pg` 后必须补跑 `pnpm db:generate`。Vercel 上由 `vercel-build` 用 Postgres schema 生成，`postinstall` 的 SQLite 生成会被它覆盖，属预期行为。
+- 构建入口固定为 `vercel.json` 的 `buildCommand = pnpm run vercel-build`（generate → migrate deploy → next build）；**禁止**在 Vercel 控制台手改构建命令，否则迁移会被跳过。
+- Cron：`/api/cron/prune-ai-logs` 只复用 `lib/ai/log-retention.ts`，**禁止**在请求路径里另写清理逻辑；生产必须配置 `CRON_SECRET`，未配置时该接口拒绝执行。
+- 生产环境变量只配置在 Vercel（Production / Preview 分开），**禁止**把 `.env` 或任何真实密钥提交进仓库；生产 `APP_BASE_URL` 必须为 https。
+- 监控：Sentry 本轮未接入；后续接入必须 `sendDefaultPii: false`、只收错误，不得上报用户内容 / prompt / 邮箱。
+- 隐私政策与条款页在拿到真实主体信息前保持「待补充」，**禁止**编造主体名称、联系方式或备案号。
+
+## 13. 文档
 
 设计变更先改文档再改代码：
 

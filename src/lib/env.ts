@@ -35,6 +35,17 @@ function optionalInt(params: {
 }
 
 /**
+ * 可选字符串型环境变量：留空（空字符串）视为未设置。
+ * 用于「不配置也能跑，配置后才启用」的开关型变量（如 CRON_SECRET）。
+ */
+function optionalText() {
+  return z.preprocess(
+    (value) => (typeof value === "string" && value.trim().length === 0 ? undefined : value),
+    z.string().trim().min(1).optional(),
+  );
+}
+
+/**
  * 环境变量 schema。
  * 注意：数字型变量使用 coerce，字符串型保持原样。
  *
@@ -42,6 +53,9 @@ function optionalInt(params: {
  * - AI_MAX_TOKENS：单次请求 max_tokens 上限
  * - AI_TIMEOUT_MS：单次请求硬超时（毫秒）
  * - AI_LOG_RETENTION_DAYS：AiCallLog 保留天数（清理脚本使用）
+ *
+ * P6 起新增：
+ * - CRON_SECRET：Vercel Cron 调用 /api/cron/prune-ai-logs 的鉴权密钥（可选）
  */
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL 不能为空（SQLite 示例：file:./dev.db）"),
@@ -78,6 +92,11 @@ const envSchema = z.object({
   QUOTA_SCRIPT: z.coerce.number().int("QUOTA_SCRIPT 必须是整数").nonnegative("QUOTA_SCRIPT 不能为负数"),
   QUOTA_REVIEW: z.coerce.number().int("QUOTA_REVIEW 必须是整数").nonnegative("QUOTA_REVIEW 不能为负数"),
   APP_BASE_URL: z.string().url("APP_BASE_URL 必须是合法 URL"),
+  /**
+   * 生产 Cron 鉴权密钥（P6）。留空即视为未启用：
+   * 生产环境下 /api/cron/* 会拒绝执行，非生产环境放行以便本地手工验证。
+   */
+  CRON_SECRET: optionalText(),
 });
 
 export type Env = z.infer<typeof envSchema>;

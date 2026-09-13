@@ -22,6 +22,12 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "smoke:real": "node scripts/smoke-real-ai.mjs",
+    "schema:check": "node scripts/check-schema-parity.mjs",
+    "db:generate:pg": "prisma generate --schema prisma/postgres/schema.prisma",
+    "db:migrate:pg": "prisma migrate deploy --schema prisma/postgres/schema.prisma",
+    "db:status:pg": "prisma migrate status --schema prisma/postgres/schema.prisma",
+    "db:baseline:pg": "prisma migrate diff --from-empty --to-schema-datamodel prisma/postgres/schema.prisma --script",
+    "vercel-build": "prisma generate --schema prisma/postgres/schema.prisma && prisma migrate deploy --schema prisma/postgres/schema.prisma && next build",
     "postinstall": "prisma generate"
   },
   "pnpm": {

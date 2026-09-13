@@ -132,7 +132,7 @@
 - [x] 参数校验：时长越界 422、缺少 `topicId` 与 `title` 422
 - [x] 注销级联删除：`Script` / `UsageCounter` / `AiCallLog` 均无残留
 - [x] 四件套全部通过（`lint` / `tsc --noEmit` / `test` / `build`）
-- [ ] 375px / 1440px 下 `/scripts`、`/scripts/new`、`/scripts/[id]` 需人工在浏览器确认
+- [x] 375px / 1440px 下 `/scripts`、`/scripts/new`、`/scripts/[id]` 已人工确认通过
 
 遗留说明：
 
@@ -174,7 +174,7 @@
 - [x] 越权：他人作品 / 报告 404；用他人作品生成复盘 404；未登录 401
 - [x] 注销级联删除：`PostRecord` / `ReviewReport` / `UsageCounter` / `AiCallLog` 均无残留
 - [x] 四件套全部通过（`lint` / `tsc --noEmit` / `test` / `build`）
-- [ ] 375px / 1440px 下 `/posts`、`/reviews`、`/reviews/[id]` 需人工在浏览器确认
+- [x] 375px / 1440px 下 `/posts`、`/reviews`、`/reviews/[id]` 已人工确认通过
 
 遗留说明：
 
@@ -206,7 +206,7 @@
 - [x] `node scripts/prune-ai-logs.mjs` 默认 dry-run，加 `--yes` 才删除；`node scripts/funnel.mjs` 与手工统计一致
 - [x] 导出的 Markdown 分镜表可正常渲染（表格竖线已转义）
 - [x] 真实上游冒烟通过：`scripts/smoke-real-ai.mjs` 在 DeepSeek `deepseek-chat` 上跑通「注册 → 画像 → 选题 → 脚本 → 作品 → 复盘 → 注销」，并断言配额、`AiCallLog` 与级联清理
-- [ ] 375px / 1440px 下落地页、`/privacy`、`/terms`、概览与四个功能页需人工确认
+- [x] 375px / 1440px 下落地页、`/privacy`、`/terms`、概览与四个功能页已人工确认通过
 
 遗留说明：
 
@@ -217,11 +217,25 @@
 
 ## P6 部署上线
 
-- 切换 Postgres（Neon / Supabase）、连接池、`prisma migrate deploy`
-- Vercel 部署、域名、环境变量、错误监控
-- 配置生产环境的 `OPENAI_API_KEY` / `OPENAI_MODEL`，并在生产环境复跑一次 `pnpm smoke:real`（P5 已在 DeepSeek 上跑通）
-- 隐私政策与服务条款的运营主体信息补齐（页面已在 P5 提供）
-- 验收：生产环境跑通完整闭环
+交付（代码侧已完成）：
+
+- 双 schema：`prisma/schema.prisma`（dev SQLite）与 `prisma/postgres/schema.prisma`（prod Postgres）；`scripts/check-schema-parity.mjs`（`pnpm schema:check`）强制校验模型逐字一致
+- Postgres 基线迁移：`prisma/postgres/migrations/20260914090000_init/migration.sql`（10 张表 / 20 个索引 / 级联删除），由 `prisma migrate diff --from-empty` 生成，与 SQLite 迁移历史完全独立
+- 构建入口：`vercel.json`（`buildCommand = pnpm run vercel-build`：generate → migrate deploy → next build）+ `db:generate:pg` / `db:migrate:pg` / `db:status:pg` / `db:baseline:pg` 脚本
+- 定时清理：`GET /api/cron/prune-ai-logs`（复用 `lib/ai/log-retention.ts`，`CRON_SECRET` 常量时间鉴权，生产未配置则拒绝执行）；`vercel.json` 每日 18:00 UTC（= 02:00 Asia/Shanghai）触发
+- 环境变量：新增可选 `CRON_SECRET` 与生产专用 `DIRECT_URL`（已在 `.env.example` 标注，本地留空不影响开发）
+- 文档：新增 `docs/DEPLOYMENT.md`（拓扑 / 双 schema / Neon 准备 / Vercel 步骤 / 环境变量 / 验收清单 / Cron / 排障 / 后续），并同步 `ARCHITECTURE.md` 与 `AGENTS.md`
+
+待你在本地执行（需要 Vercel / Neon 账号授权）：
+
+- [ ] Neon 建库（Singapore / ap-southeast-1），把连接池地址与直连地址填进 Vercel 环境变量
+- [ ] Vercel 导入 GitHub 仓库：固定 Node 20.x、函数区域 sin1、Preview 开 Deployment Protection、配置 Production / Preview 环境变量
+- [ ] 生产部署后按 `docs/DEPLOYMENT.md` 第 6 节验收（含 `node scripts/smoke-real-ai.mjs --base=https://<项目>.vercel.app`）
+- [ ] 次日复核 Vercel → Cron Jobs 出现成功记录；手工触发一次带 `Bearer $CRON_SECRET` 的调用确认 200
+- [ ] 隐私政策 / 服务条款补真实主体信息（本轮保持「待补充」，不编造）
+- [ ] 自定义域名（可延后；绑定后同步改 `APP_BASE_URL` 并重新部署）
+
+本轮明确不做：Sentry 接入、新功能、P2–P5 模块重构。
 
 ## P6 候选 / 待排期
 

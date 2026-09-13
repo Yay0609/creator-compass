@@ -1,0 +1,274 @@
+// 生产（Postgres）schema —— 由 prisma/schema.prisma 派生。
+//
+// 约定：本文件的模型部分必须与 prisma/schema.prisma 逐字一致，只允许 datasource 不同。
+// 任何模型改动都要同时改两份，`pnpm schema:check`（scripts/check-schema-parity.mjs）会强制校验。
+// 生产迁移历史与 SQLite 完全独立：本地 dev.db 的迁移绝不能 deploy 到 Postgres。
+// 生产迁移流程见 docs/DEPLOYMENT.md。
+// 创作罗盘 — 数据模型
+//
+// 设计约束（便于 SQLite → Postgres 迁移）：
+// 1. 不使用 enum（SQLite 不支持），枚举值用 String + TS 常量联合类型 + Zod 校验
+// 2. JSON 数据统一存 String，读写两端都用 Zod 校验
+// 3. 所有属于用户的资源一律 onDelete: Cascade，注销账号即彻底删除
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// 应用级键值元数据（P0 用于连通性验证；后续可承载 schema 版本等标记）
+model AppMeta {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/// 用户账号。只保存邮箱与密码哈希，不采集任何平台账号密码 / Cookie。
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique // 统一小写存储
+  passwordHash String // bcrypt，成本因子 10
+  nickname     String?
+  status       String    @default("active") // active | disabled
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  sessions      Session[]
+  profiles      CreatorProfile[]
+  topicIdeas    TopicIdea[]
+  scripts       Script[]
+  usageCounters UsageCounter[]
+  aiCallLogs    AiCallLog[]
+  posts         PostRecord[]
+  reviews       ReviewReport[]
+
+  @@index([createdAt])
+}
+
+/// 会话。主键是 HMAC-SHA256(token, SESSION_SECRET) 的 hex，
+/// 明文 token 只存在于 httpOnly Cookie 中，绝不落库。
+model Session {
+  id         String   @id
+  userId     String
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  userAgent  String?
+  ip         String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// 账号画像。P1 UI 只呈现一个默认画像（每位用户至多 1 条），
+/// 模型保留多画像能力，便于后续「一人在多平台多账号」的场景扩展。
+model CreatorProfile {
+  id             String   @id @default(cuid())
+  userId         String
+  name           String // 账号名
+  platform       String // xiaohongshu | bilibili | douyin
+  niche          String // 赛道
+  subNiche       String?
+  positioning    String? // 一句话人设
+  targetAudience String? // 目标人群
+  tone           String? // 语言风格
+  contentFormats String   @default("[]") // JSON: ["graphic","talking"]
+  followerCount  Int? // 当前粉丝量级
+  weeklyCapacity Int? // 每周可产出条数
+  goal           String? // 目标
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topicIdeas TopicIdea[]
+  scripts    Script[]
+  posts      PostRecord[]
+  reviews    ReviewReport[]
+
+  @@index([userId])
+}
+
+/// 选题。同一次生成共享 batchId，便于「换一批」与历史批次分组。
+/// profileSnapshot 锁定生成时的画像快照（只读），避免画像被修改后上下文漂移。
+model TopicIdea {
+  id                 String   @id @default(cuid())
+  userId             String
+  profileId          String?
+  batchId            String
+  title              String
+  angle              String?
+  reason             String
+  referenceDirection String
+  keywords           String   @default("[]") // JSON: string[]
+  score              Int      @default(0) // 0–100，模型给出的推荐优先级
+  difficulty         String? // low | medium | high
+  source             String   @default("ai") // ai | edited
+  model              String?
+  profileSnapshot    String   @default("{}") // JSON：生成时的画像快照（只读）
+  isFavorite         Boolean  @default(false)
+  isDiscarded        Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  scripts Script[]
+
+  @@index([userId, createdAt])
+  @@index([userId, batchId])
+}
+
+/// 配额计数。period 为 Asia/Shanghai 时区的周期标识：
+/// 月额度 kind=topic|script|review 用 YYYY-MM；每日防刷 kind=ai_daily 用 YYYY-MM-DD。
+/// 限额始终以环境变量为准，本表只存 used，避免 env 调整后出现脏快照。
+model UsageCounter {
+  id        String   @id @default(cuid())
+  userId    String
+  period    String
+  kind      String
+  used      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, period, kind])
+  @@index([userId, kind])
+}
+
+/// AI 调用日志。只记录元数据（模型、耗时、token、状态），
+/// 绝不落库 prompt 原文与模型原始输出，避免用户内容与密钥外泄。
+model AiCallLog {
+  id               String   @id @default(cuid())
+  userId           String
+  kind             String // topic | script | review
+  model            String
+  status           String // ok | error | timeout | invalid_json | rate_limited
+  attempt          Int      @default(1)
+  httpStatus       Int?
+  latencyMs        Int      @default(0)
+  promptChars      Int      @default(0)
+  outputChars      Int      @default(0)
+  totalTokens      Int?
+  errorCode        String?
+  requestId        String? // 一次生成的批次标识（= TopicIdea.batchId）
+  createdAt        DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([kind, status, createdAt])
+  @@index([requestId])
+  @@index([createdAt])
+}
+/// 脚本。由选题（或手填标题）生成：多个标题候选 + 开头钩子 + 分段脚本 + 标签 + 封面文案。
+/// 不落库「完整口播稿」：它由 outline 在 DTO 层派生，避免同一份内容两处存储导致不一致。
+model Script {
+  id              String    @id @default(cuid())
+  userId          String
+  topicId         String?
+  profileId       String?
+  batchId         String
+  titles          String    @default("[]") // JSON: string[]，标题候选；titles[0] 视为主标题
+  hook            String    @default("") // 开头钩子
+  outline         String    @default("[]") // JSON: [{ section, seconds, content, visual? }]
+  tags            String    @default("[]") // JSON: string[]
+  coverCopy       String    @default("") // 封面文案
+  cta             String? // 结尾引导
+  platform        String? // 生成时的平台（画像快照冗余，便于列表展示）
+  durationSec     Int? // 目标时长（秒）
+  source          String    @default("ai") // ai | edited
+  model           String?
+  topicSnapshot   String    @default("{}") // JSON：生成时的选题快照（只读）
+  profileSnapshot String    @default("{}") // JSON：生成时的画像快照（只读）
+  isFavorite      Boolean   @default(false)
+  isDiscarded     Boolean   @default(false)
+  editedAt        DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic   TopicIdea?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  posts   PostRecord[]
+
+  @@index([userId, createdAt])
+  @@index([userId, topicId])
+  @@index([userId, batchId])
+}
+
+/// 作品数据。全部来自用户手动录入或 CSV 粘贴，绝不抓取任何平台接口，也不采集账号密码 / Cookie。
+/// 互动率、涨粉率等派生指标一律在 DTO 层计算，不落库，避免口径调整后出现脏数据。
+model PostRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  profileId      String?
+  scriptId       String?
+  platform       String? // xiaohongshu | bilibili | douyin；缺省时回落到画像平台
+  title          String
+  publishedAt    DateTime
+  impressions    Int? // 曝光 / 展现
+  views          Int? // 播放 / 阅读
+  likes          Int?
+  comments       Int?
+  saves          Int? // 收藏
+  shares         Int? // 分享 / 转发
+  followsGained  Int? // 涨粉
+  completionRate Float? // 完播率，统一归一化到 0–1
+  note           String?
+  source         String   @default("manual") // manual | csv
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  script  Script?         @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  @@index([userId, publishedAt])
+  @@index([userId, createdAt])
+}
+
+/// 复盘报告。只引用 postIds 与生成时的只读快照，不用外键指向 PostRecord：
+/// 用户删除某条作品后，历史报告仍然完整可读（快照即事实）。
+model ReviewReport {
+  id               String    @id @default(cuid())
+  userId           String
+  profileId        String?
+  batchId          String
+  scope            String    @default("batch") // single | batch
+  postIds          String    @default("[]") // JSON: string[]
+  postSnapshot     String    @default("[]") // JSON：生成时的作品快照（只读）
+  baselineSnapshot String    @default("{}") // JSON：生成时的基线快照（只读）
+  sampleSize       Int       @default(0)
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  summary          String    @default("")
+  diagnostics      String    @default("[]") // JSON: [{ dimension, verdict, evidence, suggestion }]
+  highlights       String    @default("[]") // JSON: string[]
+  problems         String    @default("[]") // JSON: string[]
+  suggestions      String    @default("[]") // JSON: string[]
+  nextTopics       String    @default("[]") // JSON: [{ title, reason }]
+  baselineNote     String    @default("") // 模型给出的基线口径说明
+  promptVersion    String?
+  model            String?
+  source           String    @default("ai") // ai | edited
+  isFavorite       Boolean   @default(false)
+  isDiscarded      Boolean   @default(false)
+  editedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([userId, batchId])
+}

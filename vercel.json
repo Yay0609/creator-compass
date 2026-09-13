@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "pnpm run vercel-build",
+  "crons": [
+    {
+      "path": "/api/cron/prune-ai-logs",
+      "schedule": "0 18 * * *"
+    }
+  ]
+}

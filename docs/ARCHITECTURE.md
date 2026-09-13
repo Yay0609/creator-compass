@@ -15,7 +15,7 @@
 | AI | OpenAI 兼容接口 | `OPENAI_BASE_URL` + `/chat/completions`；统一走 `src/lib/ai/provider.ts` |
 | 流式 | 原生 `ReadableStream` + 手写 SSE 解析 | 不用 `EventSource`（只支持 GET、无法带 POST body） |
 | 测试 | Vitest | 单测聚焦纯逻辑（token 派生、密码哈希、Zod schema、响应封装、AI 网关重试、配额周期） |
-| 部署 | Vercel + Neon/Supabase | 生成类接口 `maxDuration = 60s` |
+| 部署 | Vercel + Neon Postgres（新加坡） | 双 schema（dev SQLite / prod Postgres）；生成类接口 `maxDuration = 60s`；`AiCallLog` 由 Vercel Cron 每日清理 |
 
 ## 2. 信息架构与路由
 
@@ -146,6 +146,12 @@ src/app/
 | POST | `/api/scripts` | 人工保存脚本（草稿落库 / 手动新增），不调用 AI、不消耗配额 |
 | GET | `/api/scripts/[id]` | 详情（条件带 userId） |
 | PATCH | `/api/scripts/[id]` | 编辑内容 / 收藏 / 忽略；改内容会把 `source` 置为 `edited` 并写 `editedAt` |
+
+已实现（P6）：
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/cron/prune-ai-logs` | Vercel Cron 每日调用的 `AiCallLog` 清理入口；`Authorization: Bearer $CRON_SECRET` 鉴权（常量时间比较），生产未配置密钥时拒绝执行 |
 
 ### 4.1 SSE 事件协议（`/api/topics/generate`）
 
@@ -330,19 +336,22 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 - 向外暴露的错误信息不回显上游原文之外的敏感信息；SSE 错误负载只含 `code` / `message` / `details`
 - 客户端静态资源已核对：不含 `OPENAI_API_KEY`、`SESSION_SECRET`、`passwordHash`、`cc_session`
 
-已知缺口（记入风险清单）：无邮箱验证、无找回密码、无登录频率限制、`AiCallLog` 无自动清理。
+已知缺口（记入风险清单）：无邮箱验证、无找回密码、无登录频率限制。`AiCallLog` 已在 P6 由 Vercel Cron 每日清理（保留期 `AI_LOG_RETENTION_DAYS`）。
 
 ## 9. 环境变量
 
 `DATABASE_URL`、`SESSION_SECRET`、`OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL`、`AI_DAILY_LIMIT`、`QUOTA_TOPIC`、`QUOTA_SCRIPT`、`QUOTA_REVIEW`、`APP_BASE_URL`
 可选项（留空即用默认值）：`AI_MAX_TOKENS`（默认 3000，上限 8192）、`AI_TIMEOUT_MS`（默认 45000，上限 120000）、`AI_LOG_RETENTION_DAYS`（默认 90）
+生产专用：`DIRECT_URL`（Neon 直连地址，仅 `prisma migrate deploy` 使用）、`CRON_SECRET`（Cron 接口鉴权；生产未配置则拒绝执行）
 
 ## 10. 生产迁移注意
 
-- SQLite → Postgres 只需改 `datasource.provider` 与 `DATABASE_URL`；模型层已规避 enum / Json 差异
-- Serverless 必须使用连接池地址，并限制连接数
-- SSE 生成接口需要确认平台执行时长（`maxDuration = 60s`），必要时评估降级为非流式
-- 上线前在空库跑一次 `prisma migrate deploy`，并把 `OPENAI_BASE_URL` 从 mock 切回真实地址
+- 生产使用独立的 `prisma/postgres/schema.prisma`（provider `postgresql`）与独立迁移历史 `prisma/postgres/migrations/`；本地 SQLite 迁移**不要** deploy 到 Postgres
+- 两份 schema 的模型部分必须逐字一致，`pnpm schema:check` 强制校验；改模型必须同时改两份
+- Neon 必须区分连接池地址（`url`，主机名带 `-pooler` 且含 `pgbouncer=true`）与直连地址（`directUrl`，迁移用）；Serverless 必须限制连接数（`connection_limit=1`）
+- `vercel-build` 串联 `prisma generate --schema prisma/postgres/schema.prisma` → `prisma migrate deploy …` → `next build`，首次部署即在空库建表
+- SSE 生成接口需要确认平台执行时长（`maxDuration = 60s`）；上游偏慢时只调环境变量 `AI_TIMEOUT_MS`，不改网关逻辑
+- 生产 `APP_BASE_URL` 必须为 https，否则 `Secure` Cookie 失效
 
 ## 11. 打磨、清理与埋点（P5）
 
@@ -355,3 +364,12 @@ P1 不变量：每位用户至多一个账号画像（创建第二个返回 409�
 - 导出：Markdown 分镜表在浏览器本地生成（`lib/scripts/markdown.ts` + `lib/client/download.ts`），无服务端导出接口
 - 真实上游冒烟：`scripts/smoke-real-ai.mjs` 串起「注册 → 画像 → 选题 → 脚本 → 作品 → 复盘 → 注销」，断言 SSE 三响应头、配额消耗、`AiCallLog` 落库与注销级联清理；没有真实 Key 时可指向 `scripts/mock-openai.mjs` 并加 `--allow-placeholder-key` 自检
 - 公开区：`/privacy`、`/terms` 与落地页共用 `PublicHeader` / `PublicFooter`；运营主体信息待补充
+
+## 12. 生产部署（P6）
+
+- 拓扑：Vercel（Next.js + Edge Middleware + Cron）→ Neon Postgres（ap-southeast-1）→ DeepSeek（OpenAI 兼容接口）；完整步骤见 `docs/DEPLOYMENT.md`
+- 数据库：双 schema —— 本地 SQLite 不变，生产 Postgres；`db:status:pg` / `db:migrate:pg` 走直连地址，`vercel-build` 自动执行迁移
+- 定时任务：`vercel.json` 声明每日 `0 18 * * *`（UTC，= 02:00 Asia/Shanghai）调用 `/api/cron/prune-ai-logs`，实现复用 `lib/ai/log-retention.ts`，不另写删除逻辑
+- 监控：Sentry 本轮未接入；后续接入要求（只收错误、`sendDefaultPii: false`、无 DSN 不初始化）见 DEPLOYMENT 第 9 节
+- 密钥：`OPENAI_API_KEY` / `SESSION_SECRET` / `CRON_SECRET` / `DATABASE_URL` 只存在于 Vercel 环境变量与服务端运行时；客户端 bundle 不得出现
+- 部署产物由 `vercel.json` 固定：`buildCommand = pnpm run vercel-build`，避免控制台手改导致迁移被跳过

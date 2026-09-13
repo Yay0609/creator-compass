@@ -58,6 +58,8 @@ pnpm dev
 | `pnpm db:migrate` | Prisma 迁移 |
 | `pnpm db:studio` | 可视化查看本地数据 |
 | `pnpm smoke:real` | 真实上游全链路冒烟（需真实 Key，且已 `pnpm start`） |
+| `pnpm schema:check` | 校验双 schema（dev SQLite / prod Postgres）模型一致 |
+| `pnpm db:status:pg` / `pnpm db:migrate:pg` | 查看 / 应用生产（Postgres）迁移 |
 
 阶段完成定义：`pnpm lint`、`pnpm exec tsc --noEmit`、`pnpm build`、`pnpm test` **全部通过**，且零错误零警告。
 
@@ -78,8 +80,21 @@ pnpm dev
 | `AI_MAX_TOKENS` | 否 | 单次请求 max_tokens 上限（默认 3000，上限 8192） | `3000` |
 | `AI_TIMEOUT_MS` | 否 | 单次请求硬超时毫秒（默认 45000，上限 120000） | `45000` |
 | `AI_LOG_RETENTION_DAYS` | 否 | AiCallLog 保留天数（默认 90） | `90` |
+| `DIRECT_URL` | 生产 | Neon 直连地址，仅 `prisma migrate deploy` 使用（本地留空） | `postgresql://...` |
+| `CRON_SECRET` | 生产 | Vercel Cron 调用 `/api/cron/prune-ai-logs` 的 Bearer 密钥 | 随机长串 |
 
 环境变量采用**延迟校验**：模块加载时不抛错，首次调用 `getEnv()` 时才用 Zod 校验并抛出 `EnvValidationError`；日志只输出变量名与原因，**不输出密钥值**。
+
+## 部署与运维
+
+生产环境为 **Vercel + Neon Postgres**，完整步骤见 `docs/DEPLOYMENT.md`（Neon 准备、Vercel 配置、环境变量清单、验收清单、Cron、回滚与排障）。
+
+要点：
+
+- 本地继续用 SQLite（`prisma/schema.prisma` + `file:./dev.db`）；生产用 `prisma/postgres/schema.prisma`（Neon 连接池地址 + 直连地址）
+- 两份 schema 的**模型部分必须逐字一致**，改完跑 `pnpm schema:check`；`pnpm db:generate:pg` 之后本地要补跑 `pnpm db:generate`
+- 生产迁移由 `vercel.json` 的 `buildCommand = pnpm run vercel-build`（generate → migrate deploy → next build）自动执行，不需手工建表
+- `AiCallLog` 由 Vercel Cron 每日调用 `/api/cron/prune-ai-logs` 清理（`CRON_SECRET` 鉴权）
 
 ## 健康检查分级
 
@@ -101,6 +116,8 @@ src/
     constants.ts        平台 / 赛道等常量
     env.ts              环境变量延迟校验
 prisma/schema.prisma    Prisma 数据模型与迁移
+prisma/postgres/        生产（Postgres）schema + 独立迁移历史
+vercel.json             构建命令（vercel-build）与 Cron 计划
 tests/                  Vitest 单测
 scripts/                本地联调脚本（mock 上游 / 真实冒烟 / 漏斗 / 日志清理）
 docs/                   PRD / ARCHITECTURE / ROADMAP
@@ -108,7 +125,7 @@ docs/                   PRD / ARCHITECTURE / ROADMAP
 
 ## 阶段路线
 
-详见 `docs/ROADMAP.md`：P0 骨架 → P1 认证与账号画像 → P2 选题推荐 → P3 标题脚本 → P4 数据复盘 → P5 打磨 → P6 上线。
+详见 `docs/ROADMAP.md`：P0 骨架 → P1 认证与账号画像 → P2 选题推荐 → P3 标题脚本 → P4 数据复盘 → P5 打磨 → P6 上线（Vercel + Neon 部署，进行中）。
 
 ## 合规红线
 

@@ -18,8 +18,8 @@ const FEATURES = [
   },
   {
     title: "作品数据复盘",
-    stage: "P4",
-    description: "手动录入或粘贴 CSV 作品数据，AI 回答哪条好、为什么、下一步怎么做。",
+    stage: "已上线",
+    description: "手动录入或粘贴 CSV 作品数据，AI 结合账号历史基线回答哪条好、为什么、下一步怎么做。",
   },
 ];
 
@@ -27,7 +27,7 @@ export default function LandingPage() {
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-12 px-6 py-16">
       <section className="space-y-4">
-        <Badge variant="secondary">P3 已上线 · 选题与脚本可用</Badge>
+        <Badge variant="secondary">P4 已上线 · 选题 / 脚本 / 数据复盘全线可用</Badge>
         <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{APP_NAME}</h1>
         <p className="max-w-2xl text-muted-foreground">{APP_DESCRIPTION}</p>
         <p className="text-sm text-muted-foreground">

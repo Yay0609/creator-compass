@@ -15,11 +15,12 @@
  *   badjson              返回非 JSON 文本（触发修复重试）
  *   badcount             选题只返回 3 条；脚本只给 2 段（触发 Zod 校验失败 -> 修复重试 -> 降级草稿）
  *   badscript            返回结构不合法的脚本 JSON（标题不足 / 钩子为空），用于验证脚本降级
+ *   badreview            返回结构不合法的复盘 JSON（诊断不足 / 选题条数不对），用于验证复盘降级
  *   http500              返回 500（触发指数退避重试，最终失败并回滚配额）
  *   slow                 延迟 60s 再返回（触发 45s 超时）
  *   nosupport_json_mode  带 response_format 时返回 400，去掉后正常返回
  *
- * 请求类型自动识别：提示词里出现 "titles" 视为脚本请求，否则视为选题请求。
+ * 请求类型自动识别：提示词含 "diagnostics" 视为复盘请求，含 "titles" 视为脚本请求，否则视为选题请求。
  */
 import http from "node:http";
 
@@ -30,6 +31,7 @@ const MODES = [
   "badjson",
   "badcount",
   "badscript",
+  "badreview",
   "http500",
   "slow",
   "nosupport_json_mode",
@@ -71,6 +73,63 @@ function scriptPayload() {
   };
 }
 
+/** 复盘结构（P4）：与 src/lib/ai/schemas/review.ts 的契约保持一致。 */
+function reviewPayload() {
+  return {
+    summary:
+      "mock 摘要：本批作品的平均播放低于账号中位数，但收藏率与互动率明显更高，说明内容「有用」但标题不够吸引点开。",
+    diagnostics: [
+      {
+        dimension: "标题",
+        verdict: "标题偏功能描述，缺少点开的理由",
+        evidence: "mock 数据：平均播放 1900，账号中位数 3400，仅为 0.56 倍",
+        suggestion: "下一条把结论前置到标题前 12 个字，并加一个具体数字",
+      },
+      {
+        dimension: "选题",
+        verdict: "选题与账号主线相关性高",
+        evidence: "mock 数据：收藏率 3.1%，高于账号中位数 1.8%",
+        suggestion: "保持赛道不变，把验证过的高收藏选题做成系列",
+      },
+      {
+        dimension: "发布节奏",
+        verdict: "发布间隔不固定，样本量不足以判断",
+        evidence: "mock 数据：本批 2 条作品间隔 2 天",
+        suggestion: "先固定每周 3 条、同一时段发布，积累 2 周再判断",
+      },
+    ],
+    highlights: ["收藏率高于账号中位数，内容本身提供了保存价值"],
+    problems: ["播放低于账号中位数，标题的点击驱动力不足"],
+    suggestions: [
+      "下一条作品把最反常识的结论放在标题前 12 个字",
+      "把收藏率最高的那条拆成 3 条系列内容",
+      "固定每周更新 3 条，连续两周后再看趋势",
+    ],
+    nextTopics: [
+      { title: "mock 选题一：收藏率最高的那条为什么值得再看一遍", reason: "mock 数据：该条收藏率是账号中位数的 1.7 倍" },
+      { title: "mock 选题二：标题前 12 个字怎么写", reason: "mock 数据：播放低于中位数，标题是主要变量" },
+      { title: "mock 选题三：稳定更新两周后的数据变化", reason: "mock 数据：发布间隔不固定，需要固定节奏再验证" },
+    ],
+    baselineNote: "对比账号历史作品的播放与互动率均值、中位数，已排除本次纳入的作品。",
+  };
+}
+
+/** 故意不合法的复盘（诊断不足 3 条、选题只有 2 条），用于验证降级草稿。 */
+function badReviewPayload() {
+  return {
+    summary: "太短的摘要",
+    diagnostics: [{ dimension: "不存在的维度", verdict: "结论", evidence: "", suggestion: "" }],
+    highlights: [],
+    problems: [],
+    suggestions: ["只有一条建议"],
+    nextTopics: [
+      { title: "选题一", reason: "理由" },
+      { title: "选题二", reason: "理由" },
+    ],
+    baselineNote: "",
+  };
+}
+
 /** 故意不合法的脚本（标题只有 1 个、钩子为空、分段只有 2 段），用于验证降级草稿。 */
 function badScriptPayload() {
   return {
@@ -83,6 +142,21 @@ function badScriptPayload() {
     tags: ["只有一个标签"],
     coverCopy: "封面文案",
   };
+}
+
+/** 按请求类型返回 mock 数据：复盘 / 脚本 / 选题。 */
+function payloadFor(kind) {
+  if (kind === "review") {
+    return reviewPayload();
+  }
+  return kind === "script" ? scriptPayload() : { items: items(5) };
+}
+
+function badPayloadFor(kind) {
+  if (kind === "review") {
+    return badReviewPayload();
+  }
+  return kind === "script" ? badScriptPayload() : { items: items(3) };
 }
 
 function completion(content) {
@@ -158,11 +232,13 @@ const server = http.createServer(async (req, res) => {
     const prompt = Array.isArray(body?.messages)
       ? body.messages.map((message) => `${message.role}: ${message.content}`).join("\n")
       : "";
-    const wantsScript = prompt.includes('"titles"');
+    const wantsReview = prompt.includes('"diagnostics"');
+    const wantsScript = !wantsReview && prompt.includes('"titles"');
+    const kind = wantsReview ? "review" : wantsScript ? "script" : "topic";
     const record = {
       at: new Date().toISOString(),
       mode,
-      kind: wantsScript ? "script" : "topic",
+      kind,
       model: body?.model ?? null,
       hasResponseFormat: body?.response_format !== undefined,
       maxTokens: body?.max_tokens ?? null,
@@ -189,7 +265,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        completion(JSON.stringify(wantsScript ? scriptPayload() : { items: items(5) })),
+        completion(JSON.stringify(payloadFor(kind))),
       );
       return;
     }
@@ -213,21 +289,30 @@ const server = http.createServer(async (req, res) => {
       sendJson(
         res,
         200,
-        completion(JSON.stringify(wantsScript ? badScriptPayload() : { items: items(3) })),
+        completion(JSON.stringify(badPayloadFor(kind))),
       );
       return;
     }
 
     if (mode === "badscript") {
-      sendJson(res, 200, completion(JSON.stringify(badScriptPayload())));
+      sendJson(
+        res,
+        200,
+        completion(JSON.stringify(kind === "script" ? badScriptPayload() : badPayloadFor(kind))),
+      );
       return;
     }
 
-    sendJson(
-      res,
-      200,
-      completion(JSON.stringify(wantsScript ? scriptPayload() : { items: items(5) })),
-    );
+    if (mode === "badreview") {
+      sendJson(
+        res,
+        200,
+        completion(JSON.stringify(kind === "review" ? badReviewPayload() : badPayloadFor(kind))),
+      );
+      return;
+    }
+
+    sendJson(res, 200, completion(JSON.stringify(payloadFor(kind))));
     return;
   }
 

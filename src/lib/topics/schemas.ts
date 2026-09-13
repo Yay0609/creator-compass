@@ -171,6 +171,7 @@ export const SSE_EVENTS = {
   progress: "progress",
   topic: "topic",
   script: "script",
+  review: "review",
   done: "done",
   error: "error",
 } as const;

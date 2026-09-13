@@ -51,7 +51,7 @@ pnpm build
 
 - 页面：`src/app/**`（公开区在根，认证在 `(auth)`，应用区在 `(app)`）
 - 组件：`src/components/**`（`ui/` 通用原子组件，`layout/` 框架级组件，领域组件按模块分目录）
-- 服务端能力：`src/lib/**`（`api/`、`db/`、`auth/`、`ai/`、`quota/`、`topics/`、`scripts/`）
+- 服务端能力：`src/lib/**`（`api/`、`db/`、`auth/`、`ai/`、`quota/`、`topics/`、`scripts/`、`posts/`、`reviews/`）
 - 契约（前后端共享的类型 + Zod）：`src/lib/<domain>/schemas.ts`，禁止两端各写一份
 - 数据模型：`prisma/schema.prisma`；业务模型按阶段新增，**禁止提前建表**
 - 测试：`tests/**`；本地联调脚本：`scripts/**`（不进生产构建）
@@ -73,12 +73,12 @@ pnpm build
 - 注销账号是物理删除（密码 + 「注销账号」二次确认），依赖外键级联清理 sessions / profiles / topics / scripts / usageCounters / aiCallLogs。
 - 任何密钥都不得暴露为 `NEXT_PUBLIC_*`。
 
-## 9. AI 网关与配额约定（P2 起生效）
+## 9. AI 网关与配额约定（P2 起生效，P3 / P4 复用）
 
 - **所有模型调用必须走 `src/lib/ai/provider.ts`**：禁止任何地方直接 `fetch` 上游、禁止绕过网关做重试或解析。
-- 网关参数：45s 超时、`max_tokens` 上限 2000、`response_format: json_object`；仅 429 / 5xx / 网络错误做指数退避重试（800ms、2400ms，最多 3 次尝试）；**超时不重试**（重试会让等待时间翻倍）。
+- 网关参数：45s 超时、`max_tokens` 上限 3000（P4 起提升，复盘报告更长）、`response_format: json_object`；仅 429 / 5xx / 网络错误做指数退避重试（800ms、2400ms，最多 3 次尝试）；**超时不重试**（重试会让等待时间翻倍）。
 - 上游返回 400 时自动摘掉 `response_format` 重试一次（不占用重试预算），以兼容不支持 JSON 模式的服务端。
-- 所有 AI 输出必须过 Zod：校验失败自动追加**一次**「修复调用」；二次失败返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 携带可编辑草稿（选题 5 条 / 脚本 1 份），**并回滚配额**。不存在 `degraded: true` 之类的中间态标记。
+- 所有 AI 输出必须过 Zod：校验失败自动追加**一次**「修复调用」；二次失败返回 **422 `AI_INVALID_OUTPUT`**，`details.draft` 携带可编辑草稿（选题 5 条 / 脚本 1 份 / 复盘 1 份），**并回滚配额**。不存在 `degraded: true` 之类的中间态标记。
 - 脚本不落库 `fullScript`：完整口播稿与总时长由 DTO 层从 `outline` 派生；分段是唯一真源，编辑 / 降级草稿都必须写回 `outline`。
 - 选题与脚本共用进度阶段枚举 `AI_PROGRESS_PHASES`（`src/lib/constants.ts`）与 SSE 事件名，禁止各写一份。
 - 进度只回传字符数（`phase` / `chars` / `attempt`），**禁止把模型增量原文透传给客户端**。
@@ -87,10 +87,22 @@ pnpm build
 - 预占必须原子：条件自增（`used: { lt: limit }`）+ 唯一约束兜底；**严禁把 AI 调用放进数据库事务**。开流前预占，任何未产出可用结果的失败（校验降级、超时、5xx、客户端断开）一律回滚。
 - 回滚必须按「预占时的 period + kind」回滚，避免跨天/跨月时误扣新周期。
 - SSE 响应必须带 `text/event-stream`、`Cache-Control: no-store`、`X-Accel-Buffering: no`，并每 15s 发心跳；开流前的错误（401/422/429）走普通 JSON，开流后的错误走 `event: error`。
-- `src/lib/ai/**`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts`、`src/lib/scripts/service.ts`、`src/lib/api/sse.ts` 都是服务端模块（`server-only`），禁止被客户端组件引用。
+- `src/lib/ai/**`、`src/lib/quota/usage.ts`、`src/lib/topics/service.ts`、`src/lib/scripts/service.ts`、`src/lib/posts/service.ts`、`src/lib/reviews/service.ts`、`src/lib/api/sse.ts` 都是服务端模块（`server-only`），禁止被客户端组件引用。
 - 本地联调可用 `scripts/mock-openai.mjs`（只监听 127.0.0.1）；禁止把它当成生产依赖，也不要在其中放置任何真实密钥。
 
-## 10. 文档
+## 10. 作品数据与复盘约定（P4 起生效）
+
+- 数据只来自用户手动录入 / 粘贴 CSV，**禁止爬虫、禁止抓取平台数据、禁止采集平台账号密码或 Cookie**。
+- CSV 解析是纯函数（`src/lib/posts/csv.ts`）：RFC4180 手写实现，不引入 papaparse；未识别的列忽略并列进 `unmatched`，不做猜测。
+- 数值与时间必须归一化后再入库：计数支持 `1,234` / `1.2万` / `12k`；比率统一到 0–1（`35%` / `35` / `0.35` 等价）；日期支持 `2026-09-01` / `2026/9/1` / `9/1`（缺年份补当年），一律按 `Asia/Shanghai` 解释，日期型输入落在当天 12:00 避免串日。
+- 互动率等派生指标**只在 DTO 层计算，不落库**（`computePostMetrics`），口径调整不会污染历史数据。
+- 导入分两步：`/api/posts/import` 只预览不写库，`/api/posts/import/commit` 才落库（整体事务，≤ 200 行）。重复行只标记「疑似重复（标题 + 发布时间一致）」，**不自动跳过、不自动去重**。
+- 基线口径：取「账号全部历史作品」的均值与中位数，**必须排除本次纳入的作品**，并在报告里标注样本数与区间（`computeBaseline`）。生成与人工保存共用 `baselineSourceOf()`，禁止两处各写一份。
+- 复盘报告只引用 `postIds` 与生成时的只读快照（`postSnapshot` / `baselineSnapshot`），**不建指向 `PostRecord` 的外键**：作品被删除或修改后，历史报告仍然完整可读。
+- 作品支持编辑与删除（删除需二次确认）；复盘报告与选题、脚本一致，只做「收藏 + 忽略」，**不做硬删除**。
+- 复盘同样遵循 P2 的 AI 约定（网关、Zod 校验、422 + `details.draft`、配额预占与回滚、AiCallLog、SSE 三个响应头），配额 kind=`review` + 全局 `ai_daily`。
+
+## 11. 文档
 
 设计变更先改文档再改代码：
 

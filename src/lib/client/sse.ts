@@ -1,4 +1,12 @@
 import {
+  sseReviewDoneSchema,
+  sseReviewMetaSchema,
+  sseReviewSchema,
+  type SseReviewDone,
+  type SseReviewEvent,
+  type SseReviewMeta,
+} from "@/lib/reviews/schemas";
+import {
   sseScriptDoneSchema,
   sseScriptMetaSchema,
   sseScriptSchema,
@@ -50,6 +58,10 @@ export type SseHandlers = {
   onScriptProgress?: (data: SseScriptProgress) => void;
   onScript?: (data: SseScriptEvent) => void;
   onScriptDone?: (data: SseScriptDone) => void;
+  /** 复盘生成：progress 与选题 / 脚本共用 onProgress */
+  onReviewMeta?: (data: SseReviewMeta) => void;
+  onReview?: (data: SseReviewEvent) => void;
+  onReviewDone?: (data: SseReviewDone) => void;
   onDone?: (data: SseDone) => void;
   onError?: (data: SseError) => void;
 };
@@ -92,7 +104,13 @@ function dispatchBlock(block: string, handlers: SseHandlers): void {
       }
 
       const scriptMeta = sseScriptMetaSchema.safeParse(payload);
-      if (scriptMeta.success) handlers.onScriptMeta?.(scriptMeta.data);
+      if (scriptMeta.success) {
+        handlers.onScriptMeta?.(scriptMeta.data);
+        return;
+      }
+
+      const reviewMeta = sseReviewMetaSchema.safeParse(payload);
+      if (reviewMeta.success) handlers.onReviewMeta?.(reviewMeta.data);
       return;
     }
     case "progress": {
@@ -114,6 +132,11 @@ function dispatchBlock(block: string, handlers: SseHandlers): void {
       if (parsed.success) handlers.onScript?.(parsed.data);
       return;
     }
+    case "review": {
+      const parsed = sseReviewSchema.safeParse(payload);
+      if (parsed.success) handlers.onReview?.(parsed.data);
+      return;
+    }
     case "done": {
       const topicDone = sseDoneSchema.safeParse(payload);
       if (topicDone.success) {
@@ -122,7 +145,13 @@ function dispatchBlock(block: string, handlers: SseHandlers): void {
       }
 
       const scriptDone = sseScriptDoneSchema.safeParse(payload);
-      if (scriptDone.success) handlers.onScriptDone?.(scriptDone.data);
+      if (scriptDone.success) {
+        handlers.onScriptDone?.(scriptDone.data);
+        return;
+      }
+
+      const reviewDone = sseReviewDoneSchema.safeParse(payload);
+      if (reviewDone.success) handlers.onReviewDone?.(reviewDone.data);
       return;
     }
     case "error": {

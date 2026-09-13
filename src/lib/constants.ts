@@ -74,8 +74,10 @@ export type AiFeature = (typeof AI_FEATURES)[number];
 /** 单次 AI 请求硬超时（毫秒）。超时不重试：重试会把等待时间翻倍，且受 Vercel 执行时长限制。 */
 export const AI_TIMEOUT_MS = 45_000;
 
-/** 单次请求 max_tokens 上限，防止模型跑飞导致费用与延迟失控。 */
-export const AI_MAX_TOKENS = 2_000;
+/** 单次请求 max_tokens 上限，防止模型跑飞导致费用与延迟失控。
+ * P4 起提升到 3000：复盘报告（诊断 + 建议 + 下一批选题）比选题 / 脚本更长，
+ * 由 prompt 约束输出规模，避免被截断。 */
+export const AI_MAX_TOKENS = 3_000;
 
 /** 最多尝试次数（含首次）。仅 429 / 5xx / 网络错误会重试。 */
 export const AI_MAX_ATTEMPTS = 3;
@@ -130,3 +132,45 @@ export const SCRIPT_DURATION_MAX_SEC = 600;
 /** 脚本历史分页：默认页大小与上限。 */
 export const SCRIPT_PAGE_SIZE = 20;
 export const SCRIPT_PAGE_SIZE_MAX = 50;
+// ---------- 作品数据与复盘（P4） ----------
+
+/** 复盘 Prompt 版本号，便于回归对比与回滚。 */
+export const REVIEW_PROMPT_VERSION = "review-v1";
+
+/** 单次复盘可纳入的作品数量区间。 */
+export const REVIEW_POST_MIN = 1;
+export const REVIEW_POST_MAX = 50;
+
+/** 分维度诊断条数区间。 */
+export const REVIEW_DIAGNOSTICS_MIN = 3;
+export const REVIEW_DIAGNOSTICS_MAX = 5;
+
+/** 亮点 / 问题各 1–4 条。 */
+export const REVIEW_POINTS_MIN = 1;
+export const REVIEW_POINTS_MAX = 4;
+
+/** 下一步建议 3–5 条。 */
+export const REVIEW_SUGGESTIONS_MIN = 3;
+export const REVIEW_SUGGESTIONS_MAX = 5;
+
+/** 下一批选题建议固定 3 条。 */
+export const REVIEW_NEXT_TOPICS_COUNT = 3;
+
+/** 复盘历史分页：默认页大小与上限。 */
+export const REVIEW_PAGE_SIZE = 20;
+export const REVIEW_PAGE_SIZE_MAX = 50;
+
+/** 作品历史分页：默认页大小与上限。 */
+export const POST_PAGE_SIZE = 20;
+export const POST_PAGE_SIZE_MAX = 50;
+
+/** 单次 CSV 导入的行数上限与请求体上限（50KB）。 */
+export const POST_IMPORT_MAX_ROWS = 200;
+export const POST_IMPORT_MAX_CSV_CHARS = 50_000;
+
+/** 计数类字段的合法上限（防止误粘贴天文数字撑爆图表）。 */
+export const POST_COUNT_MAX = 1_000_000_000;
+
+/** 作品标题与备注长度上限。 */
+export const POST_TITLE_MAX = 80;
+export const POST_NOTE_MAX = 200;

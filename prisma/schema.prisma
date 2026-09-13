@@ -38,6 +38,8 @@ model User {
   scripts       Script[]
   usageCounters UsageCounter[]
   aiCallLogs    AiCallLog[]
+  posts         PostRecord[]
+  reviews       ReviewReport[]
 
   @@index([createdAt])
 }
@@ -82,6 +84,8 @@ model CreatorProfile {
   user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   topicIdeas TopicIdea[]
   scripts    Script[]
+  posts      PostRecord[]
+  reviews    ReviewReport[]
 
   @@index([userId])
 }
@@ -186,8 +190,77 @@ model Script {
   user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   topic   TopicIdea?      @relation(fields: [topicId], references: [id], onDelete: SetNull)
   profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  posts   PostRecord[]
 
   @@index([userId, createdAt])
   @@index([userId, topicId])
+  @@index([userId, batchId])
+}
+
+/// 作品数据。全部来自用户手动录入或 CSV 粘贴，绝不抓取任何平台接口，也不采集账号密码 / Cookie。
+/// 互动率、涨粉率等派生指标一律在 DTO 层计算，不落库，避免口径调整后出现脏数据。
+model PostRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  profileId      String?
+  scriptId       String?
+  platform       String? // xiaohongshu | bilibili | douyin；缺省时回落到画像平台
+  title          String
+  publishedAt    DateTime
+  impressions    Int? // 曝光 / 展现
+  views          Int? // 播放 / 阅读
+  likes          Int?
+  comments       Int?
+  saves          Int? // 收藏
+  shares         Int? // 分享 / 转发
+  followsGained  Int? // 涨粉
+  completionRate Float? // 完播率，统一归一化到 0–1
+  note           String?
+  source         String   @default("manual") // manual | csv
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  script  Script?         @relation(fields: [scriptId], references: [id], onDelete: SetNull)
+
+  @@index([userId, publishedAt])
+  @@index([userId, createdAt])
+}
+
+/// 复盘报告。只引用 postIds 与生成时的只读快照，不用外键指向 PostRecord：
+/// 用户删除某条作品后，历史报告仍然完整可读（快照即事实）。
+model ReviewReport {
+  id               String    @id @default(cuid())
+  userId           String
+  profileId        String?
+  batchId          String
+  scope            String    @default("batch") // single | batch
+  postIds          String    @default("[]") // JSON: string[]
+  postSnapshot     String    @default("[]") // JSON：生成时的作品快照（只读）
+  baselineSnapshot String    @default("{}") // JSON：生成时的基线快照（只读）
+  sampleSize       Int       @default(0)
+  periodStart      DateTime?
+  periodEnd        DateTime?
+  summary          String    @default("")
+  diagnostics      String    @default("[]") // JSON: [{ dimension, verdict, evidence, suggestion }]
+  highlights       String    @default("[]") // JSON: string[]
+  problems         String    @default("[]") // JSON: string[]
+  suggestions      String    @default("[]") // JSON: string[]
+  nextTopics       String    @default("[]") // JSON: [{ title, reason }]
+  baselineNote     String    @default("") // 模型给出的基线口径说明
+  promptVersion    String?
+  model            String?
+  source           String    @default("ai") // ai | edited
+  isFavorite       Boolean   @default(false)
+  isDiscarded      Boolean   @default(false)
+  editedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profile CreatorProfile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
   @@index([userId, batchId])
 }

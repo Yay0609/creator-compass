@@ -9,8 +9,8 @@
 | P0 | 项目骨架 | 已完成（tag `p0-skeleton`） |
 | P1 | 认证与账号画像 | 已完成（tag `p1-auth`） |
 | P2 | 热点选题推荐 | 已完成（tag `p2-topics`） |
-| P3 | AI 标题与脚本 | 已完成（待人工确认） |
-| P4 | 数据录入与复盘 | 未开始 |
+| P3 | AI 标题与脚本 | 已完成（tag p3-scripts） |
+| P4 | 数据录入与复盘 | 已完成（待人工确认） |
 | P5 | 打磨与配额 | 未开始 |
 | P6 | 部署上线 | 未开始 |
 
@@ -140,12 +140,47 @@
 - 「重新生成」通过新增记录实现，历史会持续累积；P5 可评估批量归档 / 清理
 - Markdown 分镜表导出按计划留到 P5 评估
 
-## P4 数据录入与复盘
+## P4 数据录入与复盘（已完成）
 
-- `PostRecord` / `ReviewReport` 模型
-- 手动录入 + CSV 粘贴 + 列映射预览 + 批量落库（逐行报错）
-- 单篇 / 批量复盘报告：结论、归因、基线对比、下一步动作、下一批选题
-- 验收：10 行 CSV 可预览可修正；复盘含 ≥ 3 条带数据引用的建议
+交付：
+
+- 数据模型：`PostRecord`（作品数据，含 `publishedAt` 索引）与 `ReviewReport`（只引用 `postIds` + 只读快照，不建指向作品的外键），迁移 `20260913080039_add_posts_and_reviews`
+- 作品领域：`src/lib/posts/csv.ts`（手写 RFC4180 解析 + 表头别名映射 + 数值 / 比率 / 日期归一化 + 逐行校验）、`src/lib/posts/schemas.ts`（契约 + 派生指标 + 基线）、`src/lib/posts/service.ts`（预览 / 导入 / CRUD 编排）
+- 复盘领域：`src/lib/ai/prompts/review.ts`（`REVIEW_PROMPT_VERSION = "review-v1"`）、`src/lib/ai/schemas/review.ts`（Zod 契约 + 降级草稿 + 固定维度枚举）、`src/lib/reviews/service.ts`（编排 + 人工保存 / 编辑）
+- `POST /api/posts`、`GET /api/posts`（游标分页 + 平台 / 脚本 / 时间过滤）、`GET|PATCH|DELETE /api/posts/[id]`
+- `POST /api/posts/import`（预览不写库）、`POST /api/posts/import/commit`（整体事务，≤ 200 行）
+- `POST /api/reviews/generate`：**SSE 流式**（`meta → progress* → review → done | error`），复用 P2 / P3 的网关 / 配额（`kind=review` + `ai_daily`）/ `AiCallLog` / 进度协议
+- `POST /api/reviews`（人工保存，草稿补全落库，不消耗配额）、`GET /api/reviews`（游标分页）、`GET|PATCH /api/reviews/[id]`（编辑 / 收藏 / 忽略）
+- `/posts`：手动录入表单 + 三步 CSV 向导（粘贴 → 列映射 → 预览提交）+ 作品列表（行内编辑、二次确认删除、加载更多）
+- `/reviews`：作品多选生成入口 + 历史报告列表；`/reviews/[id]`：结论摘要、数据对比条形图（手写 CSS，不引图表库）、分维度诊断、亮点 / 问题 / 建议、下一批选题、基线明细、复制报告、编辑保存
+- 概览页从 P4 占位升级为真实汇总（四步入口计数 + 用量条）
+- `AI_MAX_TOKENS` 由 2000 提升到 3000，靠 prompt 约束输出规模
+- 本地 mock 扩展：复盘结构 + `badreview` 模式，按提示词自动区分复盘 / 脚本 / 选题请求
+
+**明确不做**：报告导出、Markdown 分镜表、爬虫、自动发布。
+
+验收结果（端到端脚本多轮，另有 127 项单测）：
+
+- [x] 迁移成功；`/api/usage` 复盘额度初始 0/5、日额度 0/20
+- [x] 单条录入 201、列表可见；派生指标与手算一致（如播放 3200 / 点赞 180 → 点赞率 5.6%）
+- [x] CSV 预览给出逐行错误原因（日期无法识别 / 标题为空），修正后 commit 落库；重复行被标记「疑似重复」
+- [x] 复盘 SSE 事件顺序 `meta → progress* → review → done`，响应头含 `text/event-stream` / `no-store` / `X-Accel-Buffering: no`
+- [x] 报告含结论摘要、3–5 条分维度诊断（含具体数字）、3–5 条建议、3 条下一批选题；落库字段与快照正确
+- [x] 生成后 `review` 1/5、`ai_daily` +1；基线与手算一致（样本数、均值 / 中位数、区间）并标注口径
+- [x] 编辑保存后刷新仍在（`source=edited`、`editedAt`）；作品删除后历史报告仍可读
+- [x] `badreview` 触发 1 次修复调用后返回 422 `AI_INVALID_OUTPUT` + 可编辑草稿，配额已回滚
+- [x] `http500` / `slow`(45s) / `nosupport_json_mode` 回归通过
+- [x] `AiCallLog` 只落 `kind=review` 元数据，无 prompt 原文与模型输出
+- [x] 越权：他人作品 / 报告 404；用他人作品生成复盘 404；未登录 401
+- [x] 注销级联删除：`PostRecord` / `ReviewReport` / `UsageCounter` / `AiCallLog` 均无残留
+- [x] 四件套全部通过（`lint` / `tsc --noEmit` / `test` / `build`）
+- [ ] 375px / 1440px 下 `/posts`、`/reviews`、`/reviews/[id]` 需人工在浏览器确认
+
+遗留说明：
+
+- 本轮仍使用本地 mock 验收（`OPENAI_API_KEY` 是占位值），真实上游冒烟推迟到 P6
+- 报告导出（Markdown / PDF）与 Markdown 分镜表按计划留到 P5 评估
+- CSV 不做自动去重：只标记「疑似重复（标题 + 发布时间一致）」，由用户决定是否继续提交
 
 ## P5 打磨与配额
 
@@ -153,6 +188,7 @@
 - 用量展示、修改昵称与密码、邮箱验证与找回密码、登录频率限制
 - `AiCallLog` 保留期与清理策略
 - 埋点：生成次数、闭环完成率
+- 评估报告导出（Markdown / PDF）与 Markdown 分镜表（P3 / P4 均按计划推迟）
 - 验收：375px 全流程可用；配额提示清晰；注销后无残留数据
 
 ## P6 部署上线
